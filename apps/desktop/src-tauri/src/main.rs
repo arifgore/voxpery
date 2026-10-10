@@ -7,8 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
-#[cfg(target_os = "linux")]
-mod linux_media;
+mod secure_storage;
 
 struct DesktopRuntimeState {
     minimize_to_tray_on_close: AtomicBool,
@@ -178,13 +177,16 @@ fn desktop_take_pending_deep_links(state: tauri::State<'_, DesktopRuntimeState>)
         .unwrap_or_default()
 }
 
+// Async so it runs off the main thread: it reads window state (`is_focused`), and on the Linux
+// CEF runtime a blocking getter issued from a synchronous command on the main thread waits for
+// that same thread and freezes the app.
 #[tauri::command]
-fn desktop_update_unread_feedback(
+async fn desktop_update_unread_feedback(
     unread_count: u32,
     unread_increased: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopRuntimeState>,
-) {
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_badge_count(if unread_count > 0 { Some(1) } else { None });
         let window_focused = window.is_focused().unwrap_or(false);
@@ -200,6 +202,7 @@ fn desktop_update_unread_feedback(
         refresh_tray_icon(&tray, unread_count > 0, next_variant);
         let _ = tray.set_tooltip(Some("Voxpery"));
     }
+    Ok(())
 }
 
 #[tauri::command]
@@ -253,6 +256,8 @@ fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
     }
 }
 
+// Linux runs on Chromium (CEF): CEF helper processes start through this entry point.
+#[cfg_attr(target_os = "linux", tauri_runtime_cef::cef_entry_point)]
 fn main() {
     // Dev-only convenience: auto-allow media permissions on Windows WebView2.
     // Never enable in production builds.
@@ -262,7 +267,26 @@ fn main() {
         "--use-fake-ui-for-media-stream",
     );
 
-    let mut builder = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(not(target_os = "linux"))]
+    let builder = builder.runtime(tauri_runtime_wry::Wry::default());
+    // System WebKitGTK builds ship without WebRTC, so Linux uses the Chromium runtime.
+    #[cfg(target_os = "linux")]
+    let builder = {
+        use tauri::webview::{PermissionKind, PermissionResponse};
+        builder
+            .runtime(tauri_runtime_cef::Cef::default())
+            // CEF calls this on its UI thread: it must not block, so it cannot ask the webview
+            // for its URL (that waits on the same thread and freezes the app). The main window
+            // only loads the app's own origin (external links open in the system browser), and
+            // Chromium's default permissions policy keeps cross-origin frames from using the
+            // microphone or camera, so these requests come from the app itself.
+            .on_permission_request(|_webview, kind| match kind {
+                PermissionKind::Microphone | PermissionKind::Camera => PermissionResponse::Allow,
+                _ => PermissionResponse::Default,
+            })
+    };
+    let mut builder = builder
         .manage(DesktopRuntimeState::default())
         .invoke_handler(tauri::generate_handler![
             desktop_set_minimize_to_tray_on_close,
@@ -310,7 +334,7 @@ fn main() {
                 }
             }))
             .plugin(tauri_plugin_http::init())
-            .plugin(tauri_plugin_secure_storage::init())
+            .plugin(secure_storage::init())
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_process::init())
             .plugin(tauri_plugin_updater::Builder::new().build())
@@ -322,32 +346,6 @@ fn main() {
                     .build(),
             )
             .setup(|app| {
-                #[cfg(target_os = "linux")]
-                {
-                    let mut config = app
-                        .config()
-                        .app
-                        .windows
-                        .iter()
-                        .find(|window| window.label == "main")
-                        .ok_or("main window configuration is missing")?
-                        .clone();
-                    config.url = tauri::WebviewUrl::External(tauri::Url::parse("about:blank")?);
-                    let main_win =
-                        tauri::WebviewWindowBuilder::from_config(app, &config)?.build()?;
-                    let initial_uri = if tauri::is_dev() {
-                        app.config()
-                            .build
-                            .dev_url
-                            .as_ref()
-                            .ok_or("desktop development URL is missing")?
-                            .to_string()
-                    } else {
-                        "tauri://localhost/".to_string()
-                    };
-                    linux_media::configure(&main_win, initial_uri)?;
-                }
-
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                     Some(vec!["--autostart"]),
@@ -436,16 +434,6 @@ fn main() {
     }
 
     let context = tauri::generate_context!();
-    #[cfg(target_os = "linux")]
-    let context = {
-        let mut context = context;
-        for window in &mut context.config_mut().app.windows {
-            if window.label == "main" {
-                window.create = false;
-            }
-        }
-        context
-    };
     builder.run(context).expect("error while running Voxpery");
 }
 

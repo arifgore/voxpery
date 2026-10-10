@@ -22,7 +22,7 @@ Google callbacks require a verified provider email. Existing accounts keep the n
 | Frontend | React 19, TypeScript, Vite, Zustand |
 | Voice | LiveKit |
 | Realtime signaling | WebSocket |
-| Desktop | Tauri 2 |
+| Desktop | Tauri 3 (alpha): system webview on Windows/macOS, Chromium (CEF) on Linux |
 
 ## High-Level Data Flow
 

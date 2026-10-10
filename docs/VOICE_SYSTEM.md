@@ -353,7 +353,7 @@ Screen publishing uses VP9 SVC when supported and falls back to VP8 simulcast wi
 1. Check browser permissions (allow microphone)
 2. Verify device in OS settings
 3. Try another browser (Firefox, Chrome, Edge)
-4. Linux desktop: Voxpery enables WebRTC/media-stream before the first app document and asks for microphone access through a native dialog. If LiveKit reports unsupported WebRTC, first inspect the installed app's `RTCPeerConnection` and track APIs and loaded WebKitGTK build; microphone permission cannot restore missing APIs. If APIs exist but capture fails, compare `getUserMedia({ audio: true })` in a browser on the same host and collect WebKitGTK/PipeWire logs. A working browser or portal services alone do not prove desktop voice works. See `DESKTOP_RELEASE_HARDENING.md` for pending runtime and package acceptance.
+4. Linux desktop: the app runs on Chromium (CEF), which includes WebRTC, and grants microphone and camera to its own origin. If voice fails, confirm the installed package is the CEF build (it bundles `libcef.so` under `/usr/share/`) and that PipeWire/portal services are running; an older WebKitGTK build reports "Voice not supported here". If APIs exist but capture fails, compare `getUserMedia({ audio: true })` in a browser on the same host and collect WebKitGTK/PipeWire logs. A working browser or portal services alone do not prove desktop voice works. See `DESKTOP_RELEASE_HARDENING.md` for pending runtime and package acceptance.
 
 ### Mic, camera, or screen-recording permission denied on desktop
 
