@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.4.0] - Unreleased
-
-This release is in preparation. Release validation and publication are still pending.
+## [0.4.0] - 2026-10-10
 
 ### Added
 - Voice and camera in the Linux desktop app: Linux now runs on Chromium, which includes WebRTC (the system WebKitGTK builds have it disabled). Linux packages are larger (about 150 MB) and need GTK 4.14 or newer (Ubuntu 24.04 or newer).
