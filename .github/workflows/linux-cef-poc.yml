@@ -89,7 +89,7 @@ jobs:
 
       - name: Cache CEF distribution
         if: matrix.name == 'linux'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/tauri-cef
           key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
@@ -112,7 +112,7 @@ jobs:
           rpm -qpR ${{ matrix.bundle_dir }}/rpm/*.rpm | head -40
 
       - name: Upload installers
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: voxpery-${{ matrix.name }}-tauri3
           path: |

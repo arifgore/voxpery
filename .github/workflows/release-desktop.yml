@@ -148,7 +148,7 @@ jobs:
       # Linux bundles the Chromium (CEF) distribution; cache the ~1 GB download between releases.
       - name: Cache CEF distribution
         if: matrix.platform == 'ubuntu-24.04'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cache/tauri-cef
           key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
