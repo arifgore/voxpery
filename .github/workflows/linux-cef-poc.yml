@@ -1,0 +1,95 @@
+# Linux desktop on Chromium (CEF) proof of concept (B-007).
+# Runs only for the PoC branch, creates no release, and uploads the Linux packages as
+# workflow artifacts for manual testing. Remove this workflow when the PoC concludes.
+name: Linux CEF PoC
+
+on:
+  push:
+    branches:
+      - feat/linux-cef-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-cef-poc-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-linux-cef:
+    name: Build Linux packages (CEF)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev patchelf cmake ninja-build file
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Sync desktop version metadata
+        run: node .github/scripts/sync-desktop-version.mjs
+
+      - name: Inject updater public key
+        env:
+          TAURI_UPDATER_PUBLIC_KEY: ${{ secrets.TAURI_UPDATER_PUBLIC_KEY }}
+        run: node .github/scripts/inject-desktop-updater-key.mjs
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Build web UI
+        working-directory: apps/web
+        env:
+          VITE_API_URL: ${{ secrets.VITE_API_URL }}
+          VITE_TURNSTILE_SITE_KEY: ${{ vars.VITE_TURNSTILE_SITE_KEY || secrets.VITE_TURNSTILE_SITE_KEY }}
+          VITE_GIPHY_API_KEY: ${{ vars.VITE_GIPHY_API_KEY }}
+        run: npm run build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+
+      - name: Cache CEF distribution
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/tauri-cef
+          key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+
+      - name: Build Linux packages
+        working-directory: apps/desktop
+        env:
+          TAURI_LINUX_AYATANA_APPINDICATOR: '1'
+        run: >-
+          npx --yes @tauri-apps/cli@3.0.0-alpha.4 build
+          --bundles deb,appimage
+          --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Report package sizes
+        run: |
+          ls -la apps/desktop/src-tauri/target/release/bundle/deb apps/desktop/src-tauri/target/release/bundle/appimage
+          dpkg-deb --info apps/desktop/src-tauri/target/release/bundle/deb/*.deb | sed -n '1,40p'
+
+      - name: Upload Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: voxpery-linux-cef
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          retention-days: 14
