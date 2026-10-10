@@ -80,7 +80,7 @@ jobs:
       fail-fast: false
       matrix:
         # Manual run with single platform = faster (~8-10 min). Tag push = all platforms.
-        include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target x86_64-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-22.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target x86_64-apple-darwin"},{"platform":"ubuntu-22.04","args":""}]') }}
+        include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target universal-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-22.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target universal-apple-darwin"},{"platform":"ubuntu-22.04","args":""}]') }}
     runs-on: ${{ matrix.platform }}
 
     steps:

@@ -202,8 +202,11 @@ if (bundleRoots.length === 0) {
   }
 
   if (platform === 'windows') {
-    requireFiles('Windows MSI installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.msi', 1_000_000)
+    // One Windows installer per release: the NSIS setup.exe.
     requireFiles('Windows NSIS installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.exe', 1_000_000)
+    if (entries.some(({ fullPath, stat }) => stat.isFile() && extname(fullPath).toLowerCase() === '.msi')) {
+      fail('Windows MSI installer must not be bundled; releases ship only the NSIS setup.exe')
+    }
   } else if (platform === 'macos') {
     const appBundles = requireDirectory('macOS .app bundle', entries, (fullPath) => fullPath.endsWith('.app'))
     requireFiles('macOS DMG installer', entries, (fullPath) => extname(fullPath).toLowerCase() === '.dmg', 1_000_000)

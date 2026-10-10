@@ -20,6 +20,7 @@ This release is in preparation. Release validation and publication are still pen
 - Returning to a channel or direct message you left while reading older history opens it where you left off; conversations left at the latest message still open at the latest message.
 
 ### Changed
+- Desktop downloads are simpler: one installer per platform. Windows uses only the setup.exe installer (the MSI package is no longer published), and macOS ships one universal app that runs natively on Intel and Apple Silicon Macs.
 - New Voxpery logo: a geometric fox mask on a dark tile, used everywhere (desktop app and installer, taskbar, tray, web favicon, installable web app, sign-in and loading screens). Every size is drawn from one vector source, so small icons stay sharp on light and dark taskbars.
 - Unread badges in the channel list are neutral; direct mentions use a red @ badge, and the server icon shows a separate mention count (also for muted servers).
 - Launch on startup is now on by default for new desktop installs on Windows, macOS and Linux (previously Windows only). Turning it off is remembered across restarts and updates.
