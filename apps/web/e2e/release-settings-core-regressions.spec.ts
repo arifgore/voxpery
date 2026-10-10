@@ -516,6 +516,53 @@ test.describe('mocked release and settings regressions', () => {
     expect(center[0]).toBeGreaterThan(center[2])
   })
 
+  test('asks before leaving an unsaved profile photo and can save it from the prompt', async ({ page }) => {
+    const state = createMockCoreState()
+    await installMockCoreApi(page, state)
+    let uploads = 0
+    await page.route('**/api/auth/profile', async (route) => {
+      uploads += 1
+      state.user.avatar_url = (route.request().postDataJSON() as { avatar_url: string }).avatar_url
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(state.user) })
+    })
+    await page.goto('/social')
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const settings = page.locator('.user-settings-modal')
+    const profile = page.locator('.user-settings-section--profile')
+    const source = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 64
+      canvas.height = 64
+      canvas.getContext('2d')!.fillRect(0, 0, 64, 64)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    const file = { name: 'square.png', mimeType: 'image/png', buffer: Buffer.from(source, 'base64') }
+    const editor = profile.locator('.profile-avatar-editor')
+    const prompt = page.getByRole('dialog', { name: 'Save your new profile photo?' })
+
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await settings.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(prompt).toBeVisible()
+    await prompt.getByRole('button', { name: 'Keep editing' }).click()
+    await expect(prompt).toHaveCount(0)
+    await expect(editor).toBeVisible()
+
+    await page.keyboard.press('Escape')
+    await expect(prompt).toBeVisible()
+    await prompt.getByRole('button', { name: 'Discard' }).click()
+    await expect(settings).toHaveCount(0)
+    expect(uploads).toBe(0)
+
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await settings.getByRole('button', { name: 'Done', exact: true }).click()
+    await prompt.getByRole('button', { name: 'Save photo' }).click()
+    await expect(settings).toHaveCount(0)
+    expect(uploads).toBe(1)
+  })
+
   test('keeps default panels and responsive visibility despite old saved widths', async ({ page }) => {
     await installMockCoreApi(page, createMockCoreState({ friends: buildFriends(2) }))
     await page.addInitScript(() => localStorage.setItem('voxpery-panel-widths', JSON.stringify({ left: 360, right: 360 })))
