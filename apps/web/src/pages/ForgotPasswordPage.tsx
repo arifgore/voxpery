@@ -35,7 +35,7 @@ export default function ForgotPasswordPage() {
         return (
             <div className="auth-page">
                 <div className="auth-card">
-                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                    <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Reset Password</h1>
                     <AuthIntegrationStatus
                         loadingMessage="Checking password recovery availability..."
@@ -56,7 +56,7 @@ export default function ForgotPasswordPage() {
         return (
             <div className="auth-page">
                 <div className="auth-card">
-                    <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                    <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                     <h1>Reset Password</h1>
                     <p>Password reset is not available because this server has not configured email delivery.</p>
 
@@ -73,7 +73,7 @@ export default function ForgotPasswordPage() {
     return (
         <div className="auth-page">
             <form className="auth-card" onSubmit={handleSubmit}>
-                <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                 <h1>Reset Password</h1>
                 <p>Enter your email to receive a reset link</p>
 

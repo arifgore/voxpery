@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voxpery-static-v2'
+const CACHE_NAME = 'voxpery-static-v3'
 const PRECACHE_URLS = ['/manifest.webmanifest', '/pwa-192.png', '/pwa-512.png']
 
 self.addEventListener('install', (event) => {
@@ -33,7 +33,11 @@ function isCacheableStaticAsset(request) {
     url.pathname === '/manifest.webmanifest' ||
     url.pathname === '/pwa-192.png' ||
     url.pathname === '/pwa-512.png' ||
-    url.pathname === '/1024.png'
+    url.pathname === '/pwa-maskable-512.png' ||
+    url.pathname === '/1024.png' ||
+    url.pathname === '/voxpery-logo.svg' ||
+    url.pathname === '/favicon-32.png' ||
+    url.pathname === '/apple-touch-icon.png'
   )
 }
 

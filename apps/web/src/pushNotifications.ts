@@ -1,6 +1,6 @@
 const PUSH_KEY = 'voxpery-settings-push-enabled'
 const PUSH_EXPLICIT_KEY = 'voxpery-settings-push-explicit'
-const APP_ICON = '/1024.png'
+const APP_ICON = '/pwa-192.png'
 export const PUSH_NOTIFICATION_STATE_CHANGED_EVENT = 'voxpery-push-notification-state-changed'
 
 function notifyPushNotificationStateChanged(): void {

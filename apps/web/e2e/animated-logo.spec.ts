@@ -11,7 +11,7 @@ test('uses the animated fox on the landing brand and auth screens', async ({ pag
   await expect(page.locator('.about-brand img')).toHaveJSProperty('naturalWidth', 1200)
 
   await page.goto('/compare')
-  await expect(page.locator('.about-brand img')).toHaveAttribute('src', '/1024.png')
+  await expect(page.locator('.about-brand img')).toHaveAttribute('src', '/fox-animated.svg')
 
   for (const path of ['/login', '/register']) {
     await page.goto(path)
