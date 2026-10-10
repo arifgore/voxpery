@@ -155,6 +155,8 @@ cargo run
 
 ### Desktop (`apps/desktop/src-tauri`)
 
+The desktop app is on Tauri 3 alpha: use the matching CLI (`cargo install tauri-cli --version 3.0.0-alpha.4 --locked`, or `npx @tauri-apps/cli@3.0.0-alpha.4`). Linux builds need GTK 4.14+, CMake and Ninja, and download the CEF distribution (~1 GB) on the first build.
+
 Requires a built `apps/web/dist` (Tauri embeds it at compile time):
 
 ```bash
@@ -198,7 +200,7 @@ Runs on `push` and `pull_request`:
 - `Detect Changes` decides which build checks a change needs (`.github/scripts/ci-changes.mjs`, covered by `ci-changes.test.mjs`)
 - `Backend` (`cargo check`, then unit and integration tests against isolated PostgreSQL and Redis services)
 - `Frontend` (`npm ci`, lint, tests, `scripts/tests` and `.github/scripts` regressions, Playwright smoke coverage, production build, and the initial JavaScript budget check)
-- `Desktop` (Ubuntu 22.04: Linux launcher validation, then `cargo check --locked` and `cargo test --locked` for the Tauri app against a placeholder frontend), so desktop compile errors fail the PR instead of the release build
+- `Desktop` (Ubuntu 24.04 with GTK 4: Linux launcher validation, then `cargo check --locked` and `cargo test --locked` for the Tauri app against a placeholder frontend; the Linux build compiles the CEF runtime), so desktop compile errors fail the PR instead of the release build
 
 Backend service containers pull pinned PostgreSQL and Redis versions from Docker Official Images on Amazon ECR Public (`public.ecr.aws/docker/library/`). This avoids Docker Hub pull quotas without requiring registry secrets, including for fork pull requests. Keep version tags pinned when updating these images.
 

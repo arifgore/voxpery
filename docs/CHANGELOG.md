@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 This release is in preparation. Release validation and publication are still pending.
 
 ### Added
+- Voice and camera in the Linux desktop app: Linux now runs on Chromium, which includes WebRTC (the system WebKitGTK builds have it disabled). Linux packages are larger (about 150 MB) and need GTK 4.14 or newer (Ubuntu 24.04 or newer).
 - Desktop: a member list button in the channel header hides or shows the member panel; the choice is remembered.
 - Mobile: a channels button in the chat header opens the channel list without leaving the conversation.
 - Clicking the server name opens a menu with Invite People and Server Settings; Invite People shows the invite link with a Copy button, without opening settings.
@@ -20,6 +21,7 @@ This release is in preparation. Release validation and publication are still pen
 - Returning to a channel or direct message you left while reading older history opens it where you left off; conversations left at the latest message still open at the latest message.
 
 ### Changed
+- The desktop app moves to Tauri 3. Windows and macOS keep their system webview; existing desktop sessions are kept.
 - Desktop downloads are simpler: one installer per platform. Windows uses only the setup.exe installer (the MSI package is no longer published), and macOS ships one universal app that runs natively on Intel and Apple Silicon Macs.
 - New Voxpery logo: a geometric fox mask on a dark tile, used everywhere (desktop app and installer, taskbar, tray, web favicon, installable web app, sign-in and loading screens). Every size is drawn from one vector source, so small icons stay sharp on light and dark taskbars.
 - Unread badges in the channel list are neutral; direct mentions use a red @ badge, and the server icon shows a separate mention count (also for muted servers).
