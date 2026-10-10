@@ -19,6 +19,7 @@ This release is in preparation. Release validation and publication are still pen
 - Messages that arrive while you are reading older history get a "New messages" divider, and the jump-to-latest button shows how many arrived.
 
 ### Changed
+- New Voxpery logo: a geometric fox mask on a dark tile, used everywhere (desktop app and installer, taskbar, tray, web favicon, installable web app, sign-in and loading screens). Every size is drawn from one vector source, so small icons stay sharp on light and dark taskbars.
 - Unread badges in the channel list are neutral; direct mentions use a red @ badge, and the server icon shows a separate mention count (also for muted servers).
 - Launch on startup is now on by default for new desktop installs on Windows, macOS and Linux (previously Windows only). Turning it off is remembered across restarts and updates.
 

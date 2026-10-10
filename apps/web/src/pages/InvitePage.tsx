@@ -106,7 +106,7 @@ export default function InvitePage() {
     return (
         <div className="auth-page">
             <div className="auth-card invite-preview-card">
-                <img src="/1024.png" alt="Voxpery" className="auth-logo" width={80} height={80} />
+                <img src="/voxpery-logo.svg" alt="Voxpery" className="auth-logo" width={80} height={80} />
                 <h1>{previewLoading ? 'Checking invite…' : 'Join server'}</h1>
                 <p>
                     {previewLoading

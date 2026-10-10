@@ -731,7 +731,7 @@ export default function AppShell() {
       <header className="shell-topbar">
         <div className="shell-left">
           <button type="button" className="shell-brand" onClick={() => navigate(ROUTES.home)}>
-            <img src="/1024.png" alt="" className="shell-brand-logo" width={32} height={32} />
+            <img src="/voxpery-logo.svg" alt="" className="shell-brand-logo" width={32} height={32} />
             <span>Voxpery</span>
             <span
               className="shell-brand-release"

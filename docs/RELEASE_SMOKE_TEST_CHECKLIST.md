@@ -222,7 +222,7 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.0` an
 
 ## 5) Desktop Smoke Tests (mandatory)
 
-- [ ] Inspect normal/unread tray and taskbar icons at Windows 100%, 125%, 150% and 200% scaling, on light/dark taskbars. Small icons must match the original fox logo in `apps/desktop/src-tauri/icons/icon.png`, without the former wider small-icon redraw, stretching or clipped ears/chin. Transparent margins, tray Show/Quit, unread feedback and original large installer icons still work. Restart or repin the updated application if Windows displays a cached old icon.
+- [ ] Inspect normal/unread tray and taskbar icons at Windows 100%, 125%, 150% and 200% scaling, on light/dark taskbars. Small icons must match the master logo `apps/web/public/voxpery-logo.svg` (fox mask on a dark tile), without stretching or clipped ears/chin. Transparent margins, tray Show/Quit, unread feedback and original large installer icons still work. Restart or repin the updated application if Windows displays a cached old icon.
 - [ ] Assign the microphone toggle to a supported letter, F key and modifier combination. Verify exactly one toggle per key press while focused, unfocused and minimized/in tray. Rebind, restart with the saved binding, clear, test an occupied shortcut and push-to-talk conflict, and confirm recording/pending saves cannot toggle or overwrite each other. Web copy must promise only focused-tab behavior, not system-wide delivery.
 
 - [ ] Installer opens with Voxpery app name and icon (not default NSIS icon).
