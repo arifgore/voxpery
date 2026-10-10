@@ -4838,15 +4838,21 @@ body {
   padding-bottom: 80px; /* reserve space for callbar overlay (matches overlay height) */
 }
 
+/* The header keeps its full width so its controls (search input, Close search) are never covered;
+   only the content below it makes room for the results panel. Both widths resolve against the
+   chat area, so the panel and the space left for it always match. */
 .chat-area.chat-area--search-panel {
   position: relative;
-  padding-right: var(--chat-search-panel-width);
   --chat-search-panel-width: min(360px, 40%);
+}
+
+.chat-area.chat-area--search-panel > :not(.chat-header):not(.chat-search-panel) {
+  margin-right: var(--chat-search-panel-width);
 }
 
 .chat-search-panel {
   position: absolute;
-  top: 0;
+  top: var(--header-height);
   right: 0;
   bottom: 0;
   width: var(--chat-search-panel-width);
@@ -4993,12 +4999,11 @@ body {
 }
 
 @media (max-width: 1023px) {
-  .chat-area.chat-area--search-panel {
-    padding-right: 0;
+  .chat-area.chat-area--search-panel > :not(.chat-header):not(.chat-search-panel) {
+    margin-right: 0;
   }
 
   .chat-search-panel {
-    top: var(--header-height);
     width: 100%;
     border-left: none;
   }
