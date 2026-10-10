@@ -177,13 +177,16 @@ fn desktop_take_pending_deep_links(state: tauri::State<'_, DesktopRuntimeState>)
         .unwrap_or_default()
 }
 
+// Async so it runs off the main thread: it reads window state (`is_focused`), and on the Linux
+// CEF runtime a blocking getter issued from a synchronous command on the main thread waits for
+// that same thread and freezes the app.
 #[tauri::command]
-fn desktop_update_unread_feedback(
+async fn desktop_update_unread_feedback(
     unread_count: u32,
     unread_increased: bool,
     app: tauri::AppHandle,
     state: tauri::State<'_, DesktopRuntimeState>,
-) {
+) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.set_badge_count(if unread_count > 0 { Some(1) } else { None });
         let window_focused = window.is_focused().unwrap_or(false);
@@ -199,6 +202,7 @@ fn desktop_update_unread_feedback(
         refresh_tray_icon(&tray, unread_count > 0, next_variant);
         let _ = tray.set_tooltip(Some("Voxpery"));
     }
+    Ok(())
 }
 
 #[tauri::command]
