@@ -252,21 +252,6 @@ fn desktop_open_media_permission_settings(kind: String) -> Result<(), String> {
     }
 }
 
-/// Microphone and camera are granted only to the app's own pages, never to other origins.
-#[cfg(target_os = "linux")]
-fn is_trusted_media_origin(url: &tauri::Url) -> bool {
-    if !url.username().is_empty() || url.password().is_some() {
-        return false;
-    }
-    (url.scheme() == "tauri" && url.host_str() == Some("localhost") && url.port().is_none())
-        || (url.scheme() == "https" && url.host_str() == Some("tauri.localhost") && url.port().is_none())
-        || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost") && url.port().is_none())
-        || (cfg!(debug_assertions)
-            && url.scheme() == "http"
-            && url.host_str() == Some("localhost")
-            && url.port() == Some(5173))
-}
-
 // Linux runs on Chromium (CEF): CEF helper processes start through this entry point.
 #[cfg_attr(target_os = "linux", tauri_runtime_cef::cef_entry_point)]
 fn main() {
@@ -287,14 +272,13 @@ fn main() {
         use tauri::webview::{PermissionKind, PermissionResponse};
         builder
             .runtime(tauri_runtime_cef::Cef::default())
-            .on_permission_request(|webview, kind| match kind {
-                PermissionKind::Microphone | PermissionKind::Camera => {
-                    if webview.url().is_ok_and(|url| is_trusted_media_origin(&url)) {
-                        PermissionResponse::Allow
-                    } else {
-                        PermissionResponse::Deny
-                    }
-                }
+            // CEF calls this on its UI thread: it must not block, so it cannot ask the webview
+            // for its URL (that waits on the same thread and freezes the app). The main window
+            // only loads the app's own origin (external links open in the system browser), and
+            // Chromium's default permissions policy keeps cross-origin frames from using the
+            // microphone or camera, so these requests come from the app itself.
+            .on_permission_request(|_webview, kind| match kind {
+                PermissionKind::Microphone | PermissionKind::Camera => PermissionResponse::Allow,
                 _ => PermissionResponse::Default,
             })
     };
