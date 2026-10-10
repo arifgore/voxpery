@@ -35,7 +35,7 @@ import {
     setDraftAttachmentUploading,
     type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import { mergeLatestPageWithHistory, mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
 import {
     clearMessageDraftIfUnchanged,
     readMessageDraft,
@@ -834,7 +834,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setMessages(cached ?? [])
         messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE).then((rows) => {
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
-            const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
+            const merged = mergeLatestPageWithHistory(ui, cached ?? [])
             if (cancelled || requestId !== channelMessagesRequestRef.current || activeChannelIdRef.current !== channelId) {
                 return
             }
@@ -864,7 +864,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             const rows = await messageApi.list(channelId, token, undefined, MESSAGE_PAGE_SIZE)
             if (requestId !== channelMessagesRequestRef.current) return
             const ui = rows.map((m) => ({ ...m, clientStatus: undefined, clientId: undefined, clientError: undefined }))
-            const merged = mergeRemoteWithRetryableLocals(ui, cached)
+            const merged = mergeLatestPageWithHistory(ui, cached)
             messagesByChannelRef.current[channelId] = merged
             if (activeChannelIdRef.current === channelId) {
                 setMessages(merged)
