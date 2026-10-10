@@ -220,8 +220,9 @@ jobs:
     if: >-
       !cancelled()
       && (needs.changes.result != 'success' || needs.changes.outputs.desktop == 'true')
-    runs-on: ubuntu-22.04
-    timeout-minutes: 25
+    # Linux desktop runs on Chromium (CEF), which needs GTK 4.14+ (Ubuntu 24.04).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v6
         with:
@@ -230,7 +231,7 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libgtk-4-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev patchelf cmake ninja-build
 
       - name: Setup Node
         uses: actions/setup-node@v6

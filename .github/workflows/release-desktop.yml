@@ -80,7 +80,7 @@ jobs:
       fail-fast: false
       matrix:
         # Manual run with single platform = faster (~8-10 min). Tag push = all platforms.
-        include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target universal-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-22.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target universal-apple-darwin"},{"platform":"ubuntu-22.04","args":""}]') }}
+        include: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'windows' && fromJSON('[{"platform":"windows-latest","args":""}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'macos' && fromJSON('[{"platform":"macos-latest","args":"--target universal-apple-darwin"}]') || github.event_name == 'workflow_dispatch' && github.event.inputs.platform == 'linux' && fromJSON('[{"platform":"ubuntu-24.04","args":""}]') || fromJSON('[{"platform":"windows-latest","args":""},{"platform":"macos-latest","args":"--target universal-apple-darwin"},{"platform":"ubuntu-24.04","args":""}]') }}
     runs-on: ${{ matrix.platform }}
 
     steps:
@@ -88,10 +88,10 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: matrix.platform == 'ubuntu-24.04'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          sudo apt-get install -y libgtk-3-dev libgtk-4-dev libayatana-appindicator3-dev librsvg2-dev libdbus-1-dev libxdo-dev libssl-dev patchelf cmake ninja-build file
 
       - name: Setup Node
         uses: actions/setup-node@v6
@@ -145,6 +145,14 @@ jobs:
         with:
           workspaces: apps/desktop/src-tauri -> target
 
+      # Linux bundles the Chromium (CEF) distribution; cache the ~1 GB download between releases.
+      - name: Cache CEF distribution
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/tauri-cef
+          key: tauri-cef-${{ runner.os }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+
       # Icons must be committed in apps/desktop/src-tauri/icons/ (see docs/DESKTOP_RELEASE_HARDENING.md).
 
       - name: Build Tauri and create release
@@ -162,6 +170,8 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+          # The desktop crate is on Tauri 3; build with the matching CLI.
+          tauriScript: npx --yes @tauri-apps/cli@3.0.0-alpha.4
 
       - name: Validate desktop artifacts
         run: node .github/scripts/validate-desktop-artifacts.mjs
