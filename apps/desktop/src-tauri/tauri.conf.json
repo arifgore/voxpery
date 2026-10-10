@@ -62,12 +62,14 @@
     "createUpdaterArtifacts": true,
     "linux": {
       "deb": {
+        "depends": ["libgtk-4-1", "libayatana-appindicator3-1"],
         "desktopTemplate": "linux/legacy.desktop.hbs",
         "files": {
           "/usr/share/applications/com.voxpery.desktop": "linux/com.voxpery.desktop"
         }
       },
       "rpm": {
+        "depends": ["gtk4", "libayatana-appindicator-gtk3"],
         "desktopTemplate": "linux/legacy.desktop.hbs",
         "files": {
           "/usr/share/applications/com.voxpery.desktop": "linux/com.voxpery.desktop"
