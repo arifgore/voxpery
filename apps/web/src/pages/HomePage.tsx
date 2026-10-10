@@ -1796,6 +1796,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 searchScopeLabel="this conversation"
                 onGoToSearchResult={(messageId) => { void goToDmSearchResult(messageId) }}
                 searchJumpingMessageId={dmSearchJumpLoadingId}
+                onOpenInviteLink={(code) => navigate(ROUTES.invite(code))}
               />
             )
           })()}

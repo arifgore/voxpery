@@ -12,6 +12,7 @@ import { COMPACT_LAYOUT_MEDIA_QUERY } from '../layout'
 import type { DraftAttachmentItem } from '../draftAttachments'
 import { hasPendingDraftAttachments } from '../draftAttachments'
 import { openExternalUrl } from '../openExternalUrl'
+import { parseInviteLinkCode } from '../inviteLinks'
 import { cleanReplyQuotePreview } from '../replyPreview'
 import EmojiPicker from './EmojiPicker'
 import DraftAttachmentCard from './DraftAttachmentCard'
@@ -818,6 +819,8 @@ interface ChatAreaProps {
     memberPanelOpen?: boolean
     /** Compact layouts: opens the channel list without leaving the chat. */
     onOpenChannelList?: () => void
+    /** Opens an invite link of this Voxpery instance inside the app instead of a browser. */
+    onOpenInviteLink?: (inviteCode: string) => void
     unreadDividerCount?: number
     loading?: boolean
     topContent?: ReactNode
@@ -880,6 +883,7 @@ export default function ChatArea({
     onOpenMemberSheet,
     memberPanelOpen,
     onOpenChannelList,
+    onOpenInviteLink,
     unreadDividerCount = 0,
     loading = false,
     topContent,
@@ -2283,6 +2287,11 @@ export default function ChatArea({
                         className="chat-link"
                         onClick={(e) => {
                             e.preventDefault()
+                            const inviteCode = onOpenInviteLink ? parseInviteLinkCode(part) : null
+                            if (inviteCode && onOpenInviteLink) {
+                                onOpenInviteLink(inviteCode)
+                                return
+                            }
                             clickedLinkTriggerRef.current = e.currentTarget
                             setClickedLink(part)
                         }}

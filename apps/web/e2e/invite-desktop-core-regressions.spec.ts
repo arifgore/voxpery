@@ -4,6 +4,7 @@ import {
   buildCoreMembers,
   buildCoreRules,
   buildCoreServer,
+  buildServerMessage,
   createMockCoreState,
   installMockCoreApi,
 } from './mock-core-api'
@@ -129,6 +130,40 @@ test.describe('mocked invite and desktop runtime regressions', () => {
     expect(state.serverJoinCount).toBe(1)
     expect(state.joinedInviteCodes).toEqual(['core-invite'])
     expect(state.servers.some((server) => server.id === inviteServer.id)).toBe(true)
+  })
+
+  test('opens an invite link from chat inside the desktop app without a browser', { tag: '@core' }, async ({ page }) => {
+    const homeServer = buildCoreServer()
+    const homeChannels = buildCoreChannels(homeServer.id)
+    const general = homeChannels.find((channel) => channel.name === 'general')!
+    const inviteServer = buildCoreServer({ id: 'server-invite-chat', name: 'Linked Guild', invite_code: 'core-invite' })
+    const state = createMockCoreState({
+      servers: [homeServer],
+      channelsByServerId: { [homeServer.id]: homeChannels, [inviteServer.id]: buildCoreChannels(inviteServer.id) },
+      membersByServerId: { [homeServer.id]: buildCoreMembers(), [inviteServer.id]: buildCoreMembers() },
+      inviteServersByCode: { [inviteServer.invite_code]: inviteServer },
+    })
+    await installMockTauriRuntime(page)
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 768 })
+
+    // Use the public invite origin this desktop build shares, as shown in Invite People.
+    await page.goto('/servers')
+    await page.getByTitle('Server menu').click()
+    await page.getByRole('menuitem', { name: 'Invite People' }).click()
+    const shared = await page.getByRole('textbox', { name: 'Invite link' }).inputValue()
+    const inviteLink = `${new URL(shared).origin}/invite/core-invite`
+    state.messagesByChannelId[general.id] = [buildServerMessage(general.id, `Come hang out: ${inviteLink}`)]
+    await page.reload()
+    await page.locator('.chat-messages').getByText(inviteLink).click()
+
+    await expect(page).toHaveURL(/\/invite\/core-invite$/)
+    await expect(page.getByRole('dialog', { name: 'External Link Warning' })).toHaveCount(0)
+    await page.getByLabel('I have read and agree to the server rules').check()
+    await page.getByRole('button', { name: 'Join server', exact: true }).click()
+    await expect(page).toHaveURL(/\/servers/)
+    expect(state.joinedInviteCodes).toEqual(['core-invite'])
+    expect(await page.evaluate(() => (window as unknown as { __testOpenedUrls: string[] }).__testOpenedUrls)).toEqual([])
   })
 
   test('keeps desktop-only settings visible when the web shell runs inside Tauri', async ({ page }) => {

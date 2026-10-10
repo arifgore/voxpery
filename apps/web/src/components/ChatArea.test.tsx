@@ -165,6 +165,22 @@ describe('ChatArea regressions', () => {
     expect(onOpenChannelList).toHaveBeenCalledTimes(1)
   })
 
+  it('opens invite links of this instance in the app and keeps the warning for other links', () => {
+    const onOpenInviteLink = vi.fn()
+    const inviteUrl = `${window.location.origin}/invite/core-guild`
+    renderChatArea({
+      messages: [message('message-1', `join us ${inviteUrl} or read https://example.com/docs`, 0)],
+      onOpenInviteLink,
+    })
+    fireEvent.click(screen.getByText(inviteUrl))
+    expect(onOpenInviteLink).toHaveBeenCalledWith('core-guild')
+    expect(screen.queryByRole('dialog', { name: 'External Link Warning' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('https://example.com/docs'))
+    expect(screen.getByRole('dialog', { name: 'External Link Warning' })).toBeInTheDocument()
+    expect(onOpenInviteLink).toHaveBeenCalledTimes(1)
+  })
+
   it('separates loading and empty search results from an empty conversation', () => {
     const { rerender } = renderChatArea({ messages: [], loading: true })
     expect(screen.queryByText('Welcome to #general!')).not.toBeInTheDocument()

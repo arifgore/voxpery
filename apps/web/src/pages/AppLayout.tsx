@@ -25,7 +25,6 @@ import ServerRolesSidebar from '../components/ServerRolesSidebar'
 import ServerRoleEditor from '../components/ServerRoleEditor'
 import { useToastStore } from '../stores/toast'
 import { AlertTriangle, LayoutDashboard, ListChecks, MessageSquare, Mic, ScrollText, ShieldAlert, ShieldCheck, X } from 'lucide-react'
-import { isTauri } from '../secureStorage'
 import { MAX_CHAT_ATTACHMENT_BYTES, getMaxChatAttachmentMb } from '../attachments'
 import {
     applyUploadedDraftAttachments,
@@ -54,6 +53,7 @@ import { createReplyContentSnippet } from '../replyPreview'
 import { countMessageCharacters, MESSAGE_MAX_CHARACTERS } from '../messageLength'
 import { createSecureId } from '../secureId'
 import { ROUTES } from '../routes'
+import { resolveInviteBaseUrl } from '../inviteLinks'
 import { handleVoiceMemberMoveRequested } from '../webrtc/voiceMemberMove'
 
 type UiMessage = MessageWithAuthor & {
@@ -261,34 +261,6 @@ function dismissWelcomeGuide(serverId: string) {
     } catch {
         // ignore
     }
-}
-
-function deriveInviteBaseFromApiEnv(): string | null {
-    const apiRaw = (import.meta.env.VITE_API_URL ?? '').trim()
-    if (!apiRaw) return null
-
-    try {
-        const api = new URL(apiRaw)
-        const host = api.hostname.toLowerCase()
-        if (host === 'localhost' || host === '127.0.0.1') {
-            return 'http://localhost:5173'
-        }
-        if (host.startsWith('api.')) {
-            return `${api.protocol}//${host.slice(4)}`
-        }
-        return `${api.protocol}//${api.host}`
-    } catch {
-        return null
-    }
-}
-
-function resolveInviteBaseUrl(): string {
-    // Browser builds should keep current origin.
-    if (typeof window !== 'undefined' && !isTauri()) {
-        return window.location.origin
-    }
-    // Desktop builds should always return a shareable public URL, never tauri.localhost.
-    return deriveInviteBaseFromApiEnv() ?? 'https://voxpery.com'
 }
 
 function escapeMentionPattern(value: string): string {
@@ -3404,6 +3376,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 showMemberSheetButton={!!activeServerId}
                 onOpenMemberSheet={isMobileViewport ? () => setShowMobileMemberSheet(true) : toggleMemberPanel}
                 memberPanelOpen={isMobileViewport ? undefined : memberPanelOpen}
+                onOpenInviteLink={(code) => navigate(ROUTES.invite(code))}
                 onOpenChannelList={isMobileViewport && activeServerId ? () => setMobileSidebarPanel('channels') : undefined}
                 emptyStateDescription={activeServer
                     ? isSoloServer
