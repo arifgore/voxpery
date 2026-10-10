@@ -16,45 +16,49 @@ const { chromium } = require('@playwright/test')
 const master = readFileSync(join(root, 'apps/web/public/voxpery-logo.svg'), 'utf8')
 const defs = master.match(/<defs>[\s\S]*?<\/defs>/)[0]
 const fox = master.match(/<g id="fox">[\s\S]*?<\/g>/)[0]
-const tileColor = master.match(/<rect id="tile"[^>]*fill="(#[0-9A-Fa-f]{6})"/)[1]
+// Solid background used only where a platform requires an opaque icon (iOS, Android, PWA maskable).
+const tileColor = '#1B2130'
 
-// Layouts on the 64-unit grid. `scale` shrinks the artwork around the centre.
+// The logo is the bare fox everywhere; `viewBox` frames it on the 64-unit grid.
+// `plate` is the background a platform forces, and `foxScale` keeps the fox inside its safe zone.
+const FOX_BOX = '6 8.5 52 52'
 const VARIANTS = {
-  // Rounded tile with a small margin: desktop, tray, favicon, PWA "any", in-app.
-  rounded: { plate: `<rect x="2" y="2" width="60" height="60" rx="15" fill="${tileColor}"/>`, scale: 1 },
-  // macOS app icon grid: the tile takes about 80% of the canvas.
-  macos: { plate: `<rect x="2" y="2" width="60" height="60" rx="13.5" fill="${tileColor}"/>`, scale: 0.8125 },
+  // Bare fox filling the square: Windows/Linux desktop, tray, favicon, PWA "any", in-app.
+  bare: { viewBox: FOX_BOX, plate: '' },
+  // macOS app icon grid: the artwork takes about 80% of the canvas, transparent around it.
+  macos: { viewBox: '-0.3 2.2 64.6 64.6', plate: '' },
   // Opaque square: iOS and apple-touch-icon (the OS applies its own mask).
-  square: { plate: `<rect width="64" height="64" fill="${tileColor}"/>`, scale: 1, foxScale: 0.86 },
+  square: { viewBox: '0 0 64 64', plate: `<rect width="64" height="64" fill="${tileColor}"/>`, foxScale: 0.86 },
   // PWA maskable: full bleed, artwork inside the 80% safe zone.
-  maskable: { plate: `<rect width="64" height="64" fill="${tileColor}"/>`, scale: 1, foxScale: 0.72 },
-  // Android round launcher.
-  round: { plate: `<circle cx="32" cy="32" r="30" fill="${tileColor}"/>`, scale: 1, foxScale: 0.86 },
-  // Android adaptive foreground: artwork only, inside the 66/108 safe zone.
-  foreground: { plate: '', scale: 1, foxScale: 0.58 },
+  maskable: { viewBox: '0 0 64 64', plate: `<rect width="64" height="64" fill="${tileColor}"/>`, foxScale: 0.72 },
+  // Android legacy and round launchers.
+  tile: { viewBox: '0 0 64 64', plate: `<rect x="2" y="2" width="60" height="60" rx="15" fill="${tileColor}"/>` },
+  round: { viewBox: '0 0 64 64', plate: `<circle cx="32" cy="32" r="30" fill="${tileColor}"/>`, foxScale: 0.86 },
+  // Android adaptive foreground: artwork only, inside the 66/108 safe zone (background = tile color).
+  foreground: { viewBox: '0 0 64 64', plate: '', foxScale: 0.58 },
 }
 
 function svgFor(variant, size) {
-  const { plate, scale, foxScale = 1 } = VARIANTS[variant]
-  const around = (s, body) => (s === 1 ? body : `<g transform="translate(32 32) scale(${s}) translate(-32 -32)">${body}</g>`)
-  const art = plate + around(foxScale, fox.replace('<g id="fox">', '<g>'))
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${size}" height="${size}">${defs}${around(scale, art)}</svg>`
+  const { viewBox, plate, foxScale = 1 } = VARIANTS[variant]
+  const body = fox.replace('<g id="fox">', '<g>')
+  const art = foxScale === 1 ? body : `<g transform="translate(32 33.5) scale(${foxScale}) translate(-32 -33.5)">${body}</g>`
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${size}" height="${size}">${defs}${plate}${art}</svg>`
 }
 
 const TARGETS = [
   // Desktop (Tauri bundle, Windows/Linux)
-  ['apps/desktop/src-tauri/icons/32x32.png', 'rounded', 32],
-  ['apps/desktop/src-tauri/icons/64x64.png', 'rounded', 64],
-  ['apps/desktop/src-tauri/icons/128x128.png', 'rounded', 128],
-  ['apps/desktop/src-tauri/icons/128x128@2x.png', 'rounded', 256],
-  ['apps/desktop/src-tauri/icons/icon.png', 'rounded', 512],
-  ['apps/desktop/src-tauri/icons/icon_preview.png', 'rounded', 32],
-  ['apps/desktop/src-tauri/icons/tray.png', 'rounded', 64],
-  ['apps/desktop/src-tauri/icons/StoreLogo.png', 'rounded', 50],
-  ...[30, 44, 71, 89, 107, 142, 150, 284, 310].map((s) => [`apps/desktop/src-tauri/icons/Square${s}x${s}Logo.png`, 'rounded', s]),
+  ['apps/desktop/src-tauri/icons/32x32.png', 'bare', 32],
+  ['apps/desktop/src-tauri/icons/64x64.png', 'bare', 64],
+  ['apps/desktop/src-tauri/icons/128x128.png', 'bare', 128],
+  ['apps/desktop/src-tauri/icons/128x128@2x.png', 'bare', 256],
+  ['apps/desktop/src-tauri/icons/icon.png', 'bare', 512],
+  ['apps/desktop/src-tauri/icons/icon_preview.png', 'bare', 32],
+  ['apps/desktop/src-tauri/icons/tray.png', 'bare', 64],
+  ['apps/desktop/src-tauri/icons/StoreLogo.png', 'bare', 50],
+  ...[30, 44, 71, 89, 107, 142, 150, 284, 310].map((s) => [`apps/desktop/src-tauri/icons/Square${s}x${s}Logo.png`, 'bare', s]),
   // Android
   ...[['mdpi', 48, 108], ['hdpi', 49, 162], ['xhdpi', 96, 216], ['xxhdpi', 144, 324], ['xxxhdpi', 192, 432]].flatMap(([dpi, launcher, fg]) => [
-    [`apps/desktop/src-tauri/icons/android/mipmap-${dpi}/ic_launcher.png`, 'rounded', launcher],
+    [`apps/desktop/src-tauri/icons/android/mipmap-${dpi}/ic_launcher.png`, 'tile', launcher],
     [`apps/desktop/src-tauri/icons/android/mipmap-${dpi}/ic_launcher_round.png`, 'round', launcher],
     [`apps/desktop/src-tauri/icons/android/mipmap-${dpi}/ic_launcher_foreground.png`, 'foreground', fg],
   ]),
@@ -67,11 +71,11 @@ const TARGETS = [
     ['83.5x83.5@2x', 167], ['512@2x', 1024],
   ].map(([name, s]) => [`apps/desktop/src-tauri/icons/ios/AppIcon-${name}.png`, 'square', s]),
   // Web
-  ['apps/web/public/1024.png', 'rounded', 1024],
-  ['apps/web/public/pwa-192.png', 'rounded', 192],
-  ['apps/web/public/pwa-512.png', 'rounded', 512],
+  ['apps/web/public/1024.png', 'bare', 1024],
+  ['apps/web/public/pwa-192.png', 'bare', 192],
+  ['apps/web/public/pwa-512.png', 'bare', 512],
   ['apps/web/public/pwa-maskable-512.png', 'maskable', 512],
-  ['apps/web/public/favicon-32.png', 'rounded', 32],
+  ['apps/web/public/favicon-32.png', 'bare', 32],
   ['apps/web/public/apple-touch-icon.png', 'square', 180],
 ]
 
@@ -96,8 +100,8 @@ for (const [file, variant, size] of TARGETS) {
   writeFileSync(join(root, file), await render(variant, size))
 }
 
-// Windows .ico with PNG frames; the 32 px frame is byte-identical to 32x32.png.
-const icoFrames = await Promise.all(ICO_SIZES.map((s) => render('rounded', s)))
+// Windows .ico with PNG frames of the bare fox; the 32 px frame is byte-identical to 32x32.png.
+const icoFrames = await Promise.all(ICO_SIZES.map((s) => render('bare', s)))
 const icoHeader = Buffer.alloc(6 + 16 * ICO_SIZES.length)
 icoHeader.writeUInt16LE(0, 0)
 icoHeader.writeUInt16LE(1, 2)
@@ -115,7 +119,7 @@ ICO_SIZES.forEach((s, i) => {
 })
 writeFileSync(join(root, 'apps/desktop/src-tauri/icons/icon.ico'), Buffer.concat([icoHeader, ...icoFrames]))
 
-// macOS .icns with the padded macOS layout.
+// macOS .icns: the bare fox on the macOS icon grid.
 const icnsChunks = []
 for (const [type, s] of ICNS_ENTRIES) {
   const data = await render('macos', s)
