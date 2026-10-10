@@ -119,6 +119,7 @@ const DEFAULT_OUTPUT_DEVICE_OPTION: VoiceDeviceOption = {
 }
 
 type SettingsSection = 'profile' | 'appearance' | 'communication' | 'voice' | 'desktop' | 'privacy'
+type PhotoLeavePrompt = { action: 'close' } | { action: 'section'; section: SettingsSection }
 type VoiceDeviceMenu = 'input' | 'output'
 const DEFAULT_SETTINGS_SECTION: SettingsSection = 'profile'
 function getInitial(name: string) {
@@ -250,6 +251,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const [aboutMe, setAboutMe] = useState(user?.about_me ?? '')
   const [profileDetailsSaving, setProfileDetailsSaving] = useState(false)
   const [avatarDraft, setAvatarDraft] = useState<{ file: File; key: number } | null>(null)
+  const [photoLeavePrompt, setPhotoLeavePrompt] = useState<PhotoLeavePrompt | null>(null)
+  const avatarSaveRef = useRef<(() => Promise<boolean>) | null>(null)
   const [avatarSelectionError, setAvatarSelectionError] = useState<string | null>(null)
   const avatarDraftKeyRef = useRef(0)
   const avatarInputRef = useRef<HTMLInputElement>(null)
@@ -545,8 +548,44 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
   const closeSettingsPanel = useCallback(() => {
     setAvatarDraft(null)
     setAvatarSelectionError(null)
+    setPhotoLeavePrompt(null)
     setShowSettingsPanel(false)
   }, [])
+
+  // Leaving the profile photo editor (closing settings or switching sections) asks first,
+  // so an edited photo is never dropped silently.
+  const requestCloseSettings = useCallback(() => {
+    if (avatarDraft) {
+      setPhotoLeavePrompt({ action: 'close' })
+      return
+    }
+    closeSettingsPanel()
+  }, [avatarDraft, closeSettingsPanel])
+
+  const changeSettingsSection = useCallback((section: SettingsSection) => {
+    if (avatarDraft && section !== activeSettingsSection) {
+      setPhotoLeavePrompt({ action: 'section', section })
+      return
+    }
+    setActiveSettingsSection(section)
+  }, [activeSettingsSection, avatarDraft])
+
+  const completePhotoLeave = useCallback((prompt: PhotoLeavePrompt) => {
+    setPhotoLeavePrompt(null)
+    if (prompt.action === 'close') {
+      closeSettingsPanel()
+      return
+    }
+    setAvatarDraft(null)
+    setAvatarSelectionError(null)
+    setActiveSettingsSection(prompt.section)
+  }, [closeSettingsPanel])
+
+  const saveAndCompletePhotoLeave = useCallback(async (prompt: PhotoLeavePrompt) => {
+    const saved = await avatarSaveRef.current?.()
+    if (saved) completePhotoLeave(prompt)
+    else setPhotoLeavePrompt(null)
+  }, [completePhotoLeave])
 
   useEffect(() => {
     if (activeSettingsSection !== 'profile') {
@@ -825,6 +864,10 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return
       e.preventDefault()
+      if (photoLeavePrompt) {
+        setPhotoLeavePrompt(null)
+        return
+      }
       if (openDeviceMenu) {
         closeDeviceMenu()
         return
@@ -850,7 +893,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
         return
       }
       if (showSettingsPanel) {
-        closeSettingsPanel()
+        requestCloseSettings()
         return
       }
       if (showStatusMenu) {
@@ -862,6 +905,8 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
       window.removeEventListener('keydown', onKeyDown)
     }
   }, [
+    photoLeavePrompt,
+    requestCloseSettings,
     closeDeleteModal,
     closeDeviceMenu,
     closeEmailModal,
@@ -1635,7 +1680,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
         document.body,
       )}
       {showSettingsPanel && typeof document !== 'undefined' && createPortal((
-        <div className="modal-overlay" onMouseDown={closeSettingsPanel}>
+        <div className="modal-overlay" onMouseDown={requestCloseSettings}>
           <div
             className={`modal user-settings-modal ${activeSettingsSection === 'voice' ? 'user-settings-modal--voice' : ''}`}
             ref={settingsModalRef}
@@ -1665,7 +1710,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                       className="user-select user-settings-section-select"
                       aria-label="Settings section"
                       value={activeSettingsSection}
-                      onChange={(event) => setActiveSettingsSection(event.target.value as SettingsSection)}
+                      onChange={(event) => changeSettingsSection(event.target.value as SettingsSection)}
                     >
                       <option value="profile">Profile</option>
                       <option value="appearance">Appearance</option>
@@ -1689,7 +1734,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'profile' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('profile')}
+                  onClick={() => changeSettingsSection('profile')}
                 >
                   <User size={16} />
                   <span>Profile</span>
@@ -1697,7 +1742,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'appearance' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('appearance')}
+                  onClick={() => changeSettingsSection('appearance')}
                 >
                   <Palette size={16} />
                   <span>Appearance</span>
@@ -1705,7 +1750,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'communication' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('communication')}
+                  onClick={() => changeSettingsSection('communication')}
                 >
                   <MessageSquare size={16} />
                   <span>Communication</span>
@@ -1713,7 +1758,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'voice' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('voice')}
+                  onClick={() => changeSettingsSection('voice')}
                 >
                   <Mic size={16} />
                   <span>Voice & Audio</span>
@@ -1721,7 +1766,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                 <button
                   type="button"
                   className={`user-settings-nav__item ${activeSettingsSection === 'privacy' ? 'user-settings-nav__item--active' : ''}`}
-                  onClick={() => setActiveSettingsSection('privacy')}
+                  onClick={() => changeSettingsSection('privacy')}
                 >
                   <Shield size={16} />
                   <span>Privacy & Data</span>
@@ -1730,7 +1775,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                   <button
                     type="button"
                     className={`user-settings-nav__item ${activeSettingsSection === 'desktop' ? 'user-settings-nav__item--active' : ''}`}
-                    onClick={() => setActiveSettingsSection('desktop')}
+                    onClick={() => changeSettingsSection('desktop')}
                   >
                     <Monitor size={16} />
                     <span>Desktop</span>
@@ -2222,6 +2267,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                   }} />
                 {avatarDraft && <ProfileAvatarEditor key={avatarDraft.key} file={avatarDraft.file}
                   onChooseAnother={() => avatarInputRef.current?.click()}
+                  saveRef={avatarSaveRef}
                   onCancel={() => { setAvatarDraft(null); setAvatarSelectionError(null) }}
                   onSave={async (dataUrl) => {
                     const saved = await updateProfileAvatar(dataUrl)
@@ -2454,11 +2500,32 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={closeSettingsPanel}
+                onClick={requestCloseSettings}
               >
                 Done
               </button>
             </footer>
+            {/* Rendered inside the settings dialog so its focus trap and stacking include the prompt. */}
+            {photoLeavePrompt && (
+              <div className="settings-photo-leave-overlay" onMouseDown={() => setPhotoLeavePrompt(null)}>
+                <div
+                  className="modal confirm-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="photo-leave-title"
+                  aria-describedby="photo-leave-description"
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  <h2 id="photo-leave-title">Save your new profile photo?</h2>
+                  <p id="photo-leave-description">You haven't saved the photo you're editing. Save it before leaving, or discard it.</p>
+                  <div className="modal-actions">
+                    <button type="button" className="btn btn-secondary" onClick={() => setPhotoLeavePrompt(null)}>Keep editing</button>
+                    <button type="button" className="btn btn-secondary" onClick={() => completePhotoLeave(photoLeavePrompt)}>Discard</button>
+                    <button type="button" className="btn btn-primary" autoFocus onClick={() => void saveAndCompletePhotoLeave(photoLeavePrompt)}>Save photo</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       ), document.body)}

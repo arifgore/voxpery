@@ -34,6 +34,21 @@ export function mergeRemoteWithRetryableLocals<T extends RetryableMessage>(remot
   return merged
 }
 
+/**
+ * Merges the latest page into the cached conversation. When the page connects to the cached
+ * messages, the older history the user already loaded is kept, so returning to a conversation
+ * does not drop the place they were reading. A page that does not connect replaces the cache.
+ */
+export function mergeLatestPageWithHistory<T extends RetryableMessage>(latest: T[], cached: T[]): T[] {
+  const merged = mergeRemoteWithRetryableLocals(latest, cached)
+  const oldestLatestId = latest[0]?.id
+  if (!oldestLatestId) return merged
+  const overlap = cached.findIndex((message) => message.id === oldestLatestId)
+  if (overlap <= 0) return merged
+  const olderHistory = cached.slice(0, overlap).filter((message) => !message.clientId)
+  return [...olderHistory, ...merged]
+}
+
 export function reconcileConfirmedMessage<T extends RetryableMessage>(
   current: T[],
   clientId: string,

@@ -33,7 +33,7 @@ import {
   setDraftAttachmentUploading,
   type DraftAttachmentItem,
 } from '../draftAttachments'
-import { mergeRemoteWithRetryableLocals, reconcileConfirmedMessage } from '../messageResilience'
+import { mergeLatestPageWithHistory, reconcileConfirmedMessage } from '../messageResilience'
 import {
   clearMessageDraftIfUnchanged,
   readMessageDraft,
@@ -525,7 +525,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
     setDmMessages(cached ?? [])
     try {
       const ui = await loadDmMessagesOnce(userId, channelId, () => dmApi.listMessages(channelId, token))
-      const merged = mergeRemoteWithRetryableLocals(ui, cached ?? [])
+      const merged = mergeLatestPageWithHistory(ui, cached ?? [])
       rememberDmMessages(channelId, merged)
       if (requestId === dmMessagesRequestRef.current && activeDmChannelIdRef.current === channelId) {
         setDmMessages(merged)

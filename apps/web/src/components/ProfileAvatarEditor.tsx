@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type MutableRefObject, type PointerEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
 import {
   AVATAR_CROP_PREVIEW_SIZE,
@@ -12,9 +12,11 @@ type ProfileAvatarEditorProps = {
   onChooseAnother: () => void
   onCancel: () => void
   onSave: (dataUrl: string) => Promise<boolean>
+  /** Lets the settings dialog save the photo when the user tries to leave with unsaved edits. */
+  saveRef?: MutableRefObject<(() => Promise<boolean>) | null>
 }
 
-export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, onSave }: ProfileAvatarEditorProps) {
+export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, onSave, saveRef }: ProfileAvatarEditorProps) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [previewSize, setPreviewSize] = useState(AVATAR_CROP_PREVIEW_SIZE)
@@ -87,19 +89,28 @@ export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, o
     move(delta[0], delta[1])
   }
 
-  const save = async () => {
-    if (!imageRef.current || !geometry || saving) return
+  const save = async (): Promise<boolean> => {
+    if (!imageRef.current || !geometry || saving) return false
     setSaving(true)
     setError(null)
     try {
       const dataUrl = renderAvatarCrop(imageRef.current, zoom, offset, previewSize, file.type)
-      if (!await onSave(dataUrl)) setError('Photo was not saved. Try again.')
+      const saved = await onSave(dataUrl)
+      if (!saved) setError('Photo was not saved. Try again.')
+      return saved
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not edit this photo')
+      return false
     } finally {
       setSaving(false)
     }
   }
+
+  useEffect(() => {
+    if (!saveRef) return
+    saveRef.current = save
+    return () => { saveRef.current = null }
+  })
 
   return (
     <div className="profile-avatar-editor">
@@ -138,7 +149,7 @@ export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, o
           <ImagePlus size={15} aria-hidden="true" /> Choose another
         </button>
         <button type="button" className="user-toggle" onClick={onCancel} disabled={saving}>Cancel</button>
-        <button type="button" className="user-toggle user-profile-save-button" onClick={() => void save()}
+        <button type="button" className="user-toggle user-profile-save-button profile-avatar-editor__save" onClick={() => void save()}
           disabled={!geometry || saving} aria-busy={saving}>
           {saving ? 'Saving...' : 'Save photo'}
         </button>

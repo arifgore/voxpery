@@ -17,6 +17,7 @@ This release is in preparation. Release validation and publication are still pen
 - Clicking the server name opens a menu with Invite People and Server Settings; Invite People shows the invite link with a Copy button, without opening settings.
 - Message search results open in their own panel (beside the chat on desktop, a separate sheet on mobile) with the result count and scope; Go to message opens the message in the conversation with the messages around it. The conversation and your draft stay in place while searching.
 - Messages that arrive while you are reading older history get a "New messages" divider, and the jump-to-latest button shows how many arrived.
+- Returning to a channel or direct message you left while reading older history opens it where you left off; conversations left at the latest message still open at the latest message.
 
 ### Changed
 - New Voxpery logo: a geometric fox mask on a dark tile, used everywhere (desktop app and installer, taskbar, tray, web favicon, installable web app, sign-in and loading screens). Every size is drawn from one vector source, so small icons stay sharp on light and dark taskbars.
@@ -24,6 +25,7 @@ This release is in preparation. Release validation and publication are still pen
 - Launch on startup is now on by default for new desktop installs on Windows, macOS and Linux (previously Windows only). Turning it off is remembered across restarts and updates.
 
 ### Fixed
+- Editing a profile photo: Save photo is now the clear primary action, and closing Settings or switching sections with an unsaved photo asks whether to save it, discard it or keep editing, instead of dropping it silently.
 - Clicking a Voxpery invite link in a channel or direct message opens the invite inside the app (and the desktop app) instead of showing the external-link warning and opening a browser.
 - The animated logo fills more of its canvas, so the README and sign-in screens no longer show large empty space around it.
 - Signing out or leaving the app while in (or joining) a voice channel now leaves voice and turns off the microphone; a join still in progress is cancelled instead of connecting afterwards.

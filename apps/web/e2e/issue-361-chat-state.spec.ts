@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { buildServerMessage, createMockCoreState, installMockCoreApi } from './mock-core-api'
 
-test('paginates DM history and opens the latest message again after leaving', async ({ page }) => {
+test('paginates DM history, restores the reading position after leaving, and reopens at latest from the bottom', async ({ page }) => {
   const channel = {
     id: 'dm-history', peer_id: 'friend-01', peer_username: 'History Friend',
     peer_avatar_url: null, peer_status: 'online', last_message_at: null,
@@ -33,8 +33,22 @@ test('paginates DM history and opens the latest message again after leaving', as
   await expect.poll(() => cursors).toContain('history-20')
   await page.mouse.wheel(0, -10000)
   await expect(scroller.getByText('History line 0', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Friends', exact: true }).click()
-  await page.getByRole('button', { name: 'Open DM with History Friend', exact: true }).click()
+  const openDm = async () => {
+    await page.getByRole('button', { name: 'Friends', exact: true }).click()
+    await page.getByRole('button', { name: 'Open DM with History Friend', exact: true }).click()
+  }
+
+  // Leaving while reading history keeps that place, even after the latest page reloads.
+  await openDm()
+  await expect(scroller.getByText('History line 0', { exact: true })).toBeVisible()
+  await expect(scroller.getByText('History line 119', { exact: true })).toHaveCount(0)
+  const jumpToLatest = page.getByRole('button', { name: 'Jump to latest messages' })
+  await expect(jumpToLatest).toBeVisible()
+
+  // Leaving from the latest message opens at the latest message again.
+  await jumpToLatest.click()
+  await expect(scroller.getByText('History line 119', { exact: true })).toBeVisible()
+  await openDm()
   await expect(scroller.getByText('History line 119', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Jump to latest messages' })).toHaveCount(0)
 })

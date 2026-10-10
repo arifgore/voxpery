@@ -48,6 +48,10 @@ type UnreadDividerSnapshot = {
 const MENTION_ALL: MentionUser = { user_id: '__all__', username: 'all' }
 const TOP_AUTO_LOAD_THRESHOLD_PX = 96
 const USER_SCROLL_INTENT_WINDOW_MS = 1200
+
+type ReadingPosition = { messageId: string; offsetTop: number }
+/** Where the user left each conversation while reading history (cleared at the latest message). */
+const readingPositions = new Map<string, ReadingPosition>()
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000
 // Includes the virtual item's 1px bottom padding. Keep these values aligned with
 // the desktop and max-width: 1023px message/divider rules in index.css.
@@ -927,6 +931,7 @@ export default function ChatArea({
     const pendingReactionBottomAnchorRef = useRef(false)
     const pendingReactionBottomAnchorTimeoutRef = useRef<number | null>(null)
     const reactionHistoryAnchorRef = useRef<{ messageId: string; offsetTop: number } | null>(null)
+    const pendingReadingRestoreRef = useRef<({ channelId: string } & ReadingPosition) | null>(null)
     const userReadingHistoryRef = useRef(false)
     const userScrollIntentUntilRef = useRef(0)
     const lastKnownScrollTopRef = useRef(0)
@@ -1247,6 +1252,7 @@ export default function ChatArea({
             window.clearTimeout(pendingReactionBottomAnchorTimeoutRef.current)
             pendingReactionBottomAnchorTimeoutRef.current = null
         }
+        pendingReadingRestoreRef.current = null
         userReadingHistoryRef.current = true
         shouldAutoScrollRef.current = false
         syncJumpToLatestVisibility()
@@ -1383,6 +1389,7 @@ export default function ChatArea({
         if (!el || el.clientHeight <= 0) return false
         let snapped = false
         runProgrammaticScroll(() => {
+            pendingReadingRestoreRef.current = null
             userReadingHistoryRef.current = false
             shouldAutoScrollRef.current = true
             setShowJumpToLatest(false)
@@ -1416,6 +1423,10 @@ export default function ChatArea({
     }, [currentChatChannelId, rowVirtualizer, runProgrammaticScroll])
     const snapToBottomRef = useRef(snapToBottom)
     snapToBottomRef.current = snapToBottom
+
+    const readingPositionKey = useCallback((channelId: string | null | undefined) => (
+        channelId ? `${currentUserId ?? ''}:${channelId}` : null
+    ), [currentUserId])
 
     const scheduleLatestAnchor = useCallback((channelId: string) => {
         cancelLatestAnchor()
@@ -1480,10 +1491,17 @@ export default function ChatArea({
             if (userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
                 reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
             }
+            const positionKey = readingPositionKey(activeChannel?.id)
+            if (positionKey && !pendingReadingRestoreRef.current) {
+                if (isAtBottom(el)) readingPositions.delete(positionKey)
+                else if (userReadingHistoryRef.current && reactionHistoryAnchorRef.current) {
+                    readingPositions.set(positionKey, reactionHistoryAnchorRef.current)
+                }
+            }
             lastKnownScrollTopRef.current = currentScrollTop
         }
         syncAutoScrollState()
-    }, [activeChannel?.id, markUserReadingHistory, startOlderMessagesLoad, syncAutoScrollState])
+    }, [activeChannel?.id, isAtBottom, markUserReadingHistory, readingPositionKey, startOlderMessagesLoad, syncAutoScrollState])
 
     const handleWheelScrollIntent = useCallback((event: WheelEvent<HTMLDivElement>) => {
         noteUserScrollIntent()
@@ -1536,10 +1554,10 @@ export default function ChatArea({
         touchStartYRef.current = nextY
     }, [markUserReadingHistory, noteUserScrollIntent])
 
-    /* When switching channel/DM, anchor to the latest visible content so
-       returning to a previously read chat does not keep an older
-       scroll position. Do not run this for pagination prepends; loading older
-       messages must preserve the user's scroll anchor. */
+    /* When switching channel/DM, return to where the user was reading history,
+       or anchor to the latest content when they had left it at the bottom.
+       Do not run this for pagination prepends; loading older messages must
+       preserve the user's scroll anchor. */
     useLayoutEffect(() => {
         const channelId = activeChannel?.id ?? null
         if (lastBottomAnchoredChannelIdRef.current === channelId) return
@@ -1552,12 +1570,61 @@ export default function ChatArea({
         preservingOlderMessagesRef.current = false
         olderMessagesAnchorRef.current = null
         reactionHistoryAnchorRef.current = null
+        pendingReadingRestoreRef.current = null
+        const saved = readingPositions.get(readingPositionKey(channelId) ?? '')
+        if (saved) {
+            cancelLatestAnchor()
+            pendingReadingRestoreRef.current = { channelId, ...saved }
+            userReadingHistoryRef.current = true
+            shouldAutoScrollRef.current = false
+            return
+        }
         shouldAutoScrollRef.current = true
         scheduleLatestAnchor(channelId)
         return () => {
             cancelLatestAnchor()
         }
-    }, [activeChannel?.id, cancelLatestAnchor, scheduleLatestAnchor])
+    }, [activeChannel?.id, cancelLatestAnchor, readingPositionKey, scheduleLatestAnchor])
+
+    /* Apply a saved reading position once its message is rendered. It is re-applied while
+       the conversation loads (the latest page may arrive after the cached history) until the
+       user scrolls. If the message is no longer loaded, fall back to the latest message. */
+    useLayoutEffect(() => {
+        const pending = pendingReadingRestoreRef.current
+        const el = messagesScrollRef.current
+        if (!pending || pending.channelId !== activeChannel?.id || !el) return
+        const index = messages.findIndex((message) => message.id === pending.messageId)
+        if (index < 0) {
+            if (loading || messages.length === 0) return
+            pendingReadingRestoreRef.current = null
+            readingPositions.delete(readingPositionKey(pending.channelId) ?? '')
+            userReadingHistoryRef.current = false
+            scheduleLatestAnchor(pending.channelId)
+            return
+        }
+        const apply = () => {
+            if (pendingReadingRestoreRef.current !== pending) return
+            const row = Array.from(el.querySelectorAll<HTMLElement>('[data-message-id]'))
+                .find((item) => item.dataset.messageId === pending.messageId)
+            if (!row) {
+                runProgrammaticScroll(() => rowVirtualizer.scrollToIndex(index, { align: 'start' }))
+                return
+            }
+            const delta = row.getBoundingClientRect().top - el.getBoundingClientRect().top - pending.offsetTop
+            if (Math.abs(delta) > 1) runProgrammaticScroll(() => { el.scrollTop += delta })
+            syncJumpToLatestVisibility()
+        }
+        apply()
+        let secondFrame = 0
+        const firstFrame = window.requestAnimationFrame(() => {
+            apply()
+            secondFrame = window.requestAnimationFrame(apply)
+        })
+        return () => {
+            window.cancelAnimationFrame(firstFrame)
+            window.cancelAnimationFrame(secondFrame)
+        }
+    }, [activeChannel?.id, loading, messages, readingPositionKey, rowVirtualizer, runProgrammaticScroll, scheduleLatestAnchor, syncJumpToLatestVisibility])
 
     /* Scroll to bottom when opening a chat or when messages load (e.g. DM opened
        from Messages view). useLayoutEffect keeps the first painted frame already

@@ -3325,6 +3325,30 @@ body {
   opacity: 0.58;
 }
 
+.settings-photo-leave-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--overlay-backdrop);
+}
+
+/* The photo editor's save is the step's primary action, styled like the dialog's Done. */
+.user-settings-modal .profile-avatar-editor__actions .profile-avatar-editor__save {
+  border-color: var(--btn-primary-border);
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-text);
+  font-weight: 600;
+}
+
+.user-settings-modal .profile-avatar-editor__actions .profile-avatar-editor__save:hover:not(:disabled) {
+  border-color: var(--btn-primary-border-hover);
+  background: var(--btn-primary-bg-hover);
+}
+
 .user-settings-section--profile > .user-settings-section-title {
   margin-bottom: 8px;
 }

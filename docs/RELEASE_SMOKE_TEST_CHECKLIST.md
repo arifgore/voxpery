@@ -43,6 +43,9 @@ For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.0` an
 - [ ] Search in a server channel and a DM: results open beside the chat (desktop) or as a sheet (mobile) with count and scope; the chat and draft stay; Go to message opens an old message with its surrounding messages (server channel) or after loading history (DM); closing search keeps the chat position.
 - [ ] Scroll up in a busy channel while a second account sends messages: the view does not move, the jump button shows the new message count, and a "New messages" divider marks the first one. Mentions show a red @ badge in the channel list and a mention count on the server icon.
 
+- [ ] Scroll up in a busy channel and a DM, switch to another conversation and back: the same messages are on screen, also after the latest page reloads; from the latest message, returning opens at the latest message.
+- [ ] Choose a new profile photo and press Done, Escape or another Settings section without saving: a prompt offers Save photo, Discard and Keep editing; Save photo uploads the crop and closes Settings.
+
 ### Chat state regression checks (#361)
 
 - [ ] Open an attachment preview using Enter. Initial focus is inside the dialog; Tab/Shift+Tab stay inside, Escape closes it, and focus returns to the trigger. Background controls are inert until dismissal.
