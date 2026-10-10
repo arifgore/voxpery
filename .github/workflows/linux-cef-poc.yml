@@ -1,6 +1,6 @@
 # Linux desktop on Chromium (CEF) proof of concept (B-007).
 # Runs only for the PoC branch, creates no release, and uploads the Linux packages as
-# workflow artifacts for manual testing. Remove this workflow when the PoC concludes.
+# workflow artifacts for manual testing (AppImage is not built yet: its bundler fails in CI). Remove this workflow when the PoC concludes.
 name: Linux CEF PoC
 
 on:
@@ -77,12 +77,12 @@ jobs:
           TAURI_LINUX_AYATANA_APPINDICATOR: '1'
         run: >-
           npx --yes @tauri-apps/cli@3.0.0-alpha.4 build
-          --bundles deb,appimage
+          --bundles deb
           --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - name: Report package sizes
         run: |
-          ls -la apps/desktop/src-tauri/target/release/bundle/deb apps/desktop/src-tauri/target/release/bundle/appimage
+          ls -la apps/desktop/src-tauri/target/release/bundle/deb
           dpkg-deb --info apps/desktop/src-tauri/target/release/bundle/deb/*.deb | sed -n '1,40p'
 
       - name: Upload Linux packages
@@ -91,5 +91,4 @@ jobs:
           name: voxpery-linux-cef
           path: |
             apps/desktop/src-tauri/target/release/bundle/deb/*.deb
-            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
           retention-days: 14
