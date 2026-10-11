@@ -31,6 +31,9 @@ tauri-runtime-wry = "=3.0.0-alpha.4"
 # Linux uses Chromium (CEF): system WebKitGTK builds ship without WebRTC.
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-runtime-cef = "=3.0.0-alpha.5"
+# Same versions as tauri-runtime-cef; used to restore keyboard focus (src/linux_focus.rs).
+cef = { version = "=152.3.0", default-features = false }
+x11-dl = "=2.21.0"
 
 [build-dependencies]
 tauri-build = { version = "=3.0.0-alpha.3", features = [] }

@@ -7,6 +7,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use tauri::Manager;
 
+#[cfg(target_os = "linux")]
+mod linux_focus;
 mod secure_storage;
 
 struct DesktopRuntimeState {
@@ -442,6 +444,12 @@ fn main() {
                             let _ = main_win_clone.minimize();
                             #[cfg(not(target_os = "linux"))]
                             let _ = main_win_clone.hide();
+                        }
+                        // CEF on Linux can leave X11 keyboard focus outside the browser after
+                        // the window is shown or reactivated; typing then never reaches the page.
+                        #[cfg(target_os = "linux")]
+                        WindowEvent::Focused(true) => {
+                            linux_focus::focus_webview_keyboard(&main_win_clone);
                         }
                         _ => {}
                     });
