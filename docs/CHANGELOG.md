@@ -7,10 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-10-12
+
+### Added
+- Linux: each release now also includes a `.flatpak` package next to the `.deb` and `.rpm`. Install or update it with `flatpak install --user --reinstall ./Voxpery_<version>_x86_64.flatpak`.
+
 ### Changed
 - One title bar: the app header is now the window's title bar on Windows, macOS and Linux, with Quick Search in the center and the minimize, maximize and close buttons on the right. Web uses the same header without window buttons.
 
 ### Fixed
+- With the member list hidden, the voice channel screen now uses the freed space on the right, as text channels already did.
 - Changing or removing your profile photo now updates the avatar next to your messages right away, in server channels and direct messages and for everyone who has the conversation open, including older messages loaded earlier.
 
 ## [0.4.2] - 2026-10-11

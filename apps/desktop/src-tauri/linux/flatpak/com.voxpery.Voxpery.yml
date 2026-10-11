@@ -1,0 +1,62 @@
+# Flatpak bundle attached to each GitHub release next to the .deb and .rpm (not a Flathub build).
+# CI copies this directory, the release .deb (as voxpery.deb) and icons/icon.png (as icon.png)
+# into one build directory and fills in the metainfo version (prepare-build-dir.sh); see
+# .github/workflows/release-desktop.yml and docs/DESKTOP_RELEASE_HARDENING.md.
+id: com.voxpery.Voxpery
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+# Provides zypak, which runs Chromium's (CEF's) process sandbox through the Flatpak sandbox.
+base: org.electronjs.Electron2.BaseApp
+base-version: '26.08'
+command: voxpery-desktop
+separate-locales: false
+
+finish-args:
+  # Messages, voice signalling, LiveKit media and the API.
+  - --share=network
+  # X11 shared memory; the CEF runtime renders through X11.
+  - --share=ipc
+  # The CEF runtime always uses X11 (XWayland on Wayland sessions).
+  - --socket=x11
+  # Microphone input and voice playback.
+  - --socket=pulseaudio
+  # Camera for video calls (Chromium opens /dev/video* directly) and GPU acceleration.
+  - --device=all
+  # Sign-in session stored in the system keyring (Secret Service).
+  - --talk-name=org.freedesktop.secrets
+  # Desktop notifications for new messages.
+  - --talk-name=org.freedesktop.Notifications
+  # Tray icon host (StatusNotifierItem).
+  - --talk-name=org.kde.StatusNotifierWatcher
+
+modules:
+  - name: voxpery
+    buildsystem: simple
+    # Prebuilt release binaries (the app and CEF) are packaged as they are.
+    build-options:
+      no-debuginfo: true
+      strip: false
+    build-commands:
+      # The .deb keeps the app and its CEF files in usr/share/Voxpery.
+      - ar x voxpery.deb
+      - tar -xf data.tar.*
+      - mkdir -p /app/lib
+      - cp -a usr/share/Voxpery /app/lib/voxpery
+      # Setuid helpers do not work in a Flatpak; zypak provides the sandbox instead.
+      - rm -f /app/lib/voxpery/chrome-sandbox
+      - install -Dm755 voxpery-desktop.sh /app/bin/voxpery-desktop
+      - install -Dm644 com.voxpery.Voxpery.desktop /app/share/applications/com.voxpery.Voxpery.desktop
+      - install -Dm644 com.voxpery.Voxpery.metainfo.xml /app/share/metainfo/com.voxpery.Voxpery.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.voxpery.Voxpery.png
+    sources:
+      - type: file
+        path: voxpery.deb
+      - type: file
+        path: voxpery-desktop.sh
+      - type: file
+        path: com.voxpery.Voxpery.desktop
+      - type: file
+        path: com.voxpery.Voxpery.metainfo.xml
+      - type: file
+        path: icon.png

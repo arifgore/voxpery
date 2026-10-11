@@ -58,7 +58,7 @@ afterEach(() => {
 })
 
 describe('desktop updater', () => {
-  it('leaves Flatpak installs to Flathub without checking or installing', async () => {
+  it('leaves Flatpak installs to their .flatpak file without checking or installing', async () => {
     const { runtime, check, downloadAndInstall } = createRuntime({ update: { version: '0.5.0' } })
     const flatpakRuntime = { ...runtime, isManagedExternally: () => Promise.resolve(true) }
     const status = listenForUpdateStatus()

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.voxpery.Voxpery</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>AGPL-3.0-only</project_license>
+  <name>Voxpery</name>
+  <summary>Chat, voice and screen sharing</summary>
+  <developer id="com.voxpery">
+    <name>Emircan Agac</name>
+  </developer>
+  <description>
+    <p>Voxpery is an open-source app for talking with your communities and friends in text, voice and video, on the web and on the desktop.</p>
+    <ul>
+      <li>Servers with text and voice channels, roles and channel permissions</li>
+      <li>Direct messages with friends</li>
+      <li>Voice chat, camera and screen sharing</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">com.voxpery.Voxpery.desktop</launchable>
+  <url type="homepage">https://voxpery.com</url>
+  <url type="bugtracker">https://github.com/emircanagac/voxpery/issues</url>
+  <url type="vcs-browser">https://github.com/emircanagac/voxpery</url>
+  <screenshots>
+    <screenshot type="default">
+      <image>https://raw.githubusercontent.com/emircanagac/voxpery/main/apps/web/src/assets/voxpery.png</image>
+      <caption>A server channel with its member list</caption>
+    </screenshot>
+  </screenshots>
+  <content_rating type="oars-1.1">
+    <content_attribute id="social-chat">intense</content_attribute>
+    <content_attribute id="social-audio">intense</content_attribute>
+    <content_attribute id="social-contacts">intense</content_attribute>
+    <content_attribute id="social-info">mild</content_attribute>
+  </content_rating>
+  <releases>
+    <!-- Filled in by the release workflow from the release version. -->
+    <release version="@VERSION@" date="@DATE@"/>
+  </releases>
+</component>

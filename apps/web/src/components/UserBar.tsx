@@ -98,6 +98,7 @@ import {
   setGlobalPushToTalkCaptureActive,
 } from '../globalPushToTalk'
 
+const VOXPERY_RELEASES_URL = 'https://github.com/emircanagac/voxpery/releases/latest'
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024
 const SETTINGS_CHANGED_EVENT = VOICE_SETTINGS_CHANGED_EVENT
 const SOUND_KEY = 'voxpery-settings-sound-enabled'
@@ -2201,7 +2202,7 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                             ? updateInfo?.available
                               ? `Voxpery ${updateInfo.version} is available to install.`
                               : updatesManagedExternally
-                                ? 'Updates for this installation are provided by Flathub.'
+                                ? 'This Flatpak updates when you install the newer .flatpak file from the Voxpery releases page; your account and settings are kept.'
                               : updateInfo?.error
                                 ? 'Could not check for new desktop releases right now.'
                               : 'Your desktop app is on the latest version.'
@@ -2209,6 +2210,15 @@ export default function UserBar({ compactSettingsTarget }: { compactSettingsTarg
                         </div>
                       </div>
                       <div className="user-setting-actions">
+                        {updatesManagedExternally && (
+                          <button
+                            type="button"
+                            className="user-toggle account-action-btn"
+                            onClick={() => void openExternalUrl(VOXPERY_RELEASES_URL)}
+                          >
+                            Releases
+                          </button>
+                        )}
                         {!updatesManagedExternally && (
                           <button
                             type="button"

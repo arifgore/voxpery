@@ -6,7 +6,7 @@ import { isTauri } from './secureStorage'
 import { prepareDesktopForUpdateInstall } from './desktopSettings'
 
 export type UpdateResult =
-  // `managedExternally`: a package store (Flathub) updates this install, not the app.
+  // `managedExternally`: this install is updated outside the app (a newer .flatpak file).
   | { available: false; error?: boolean; managedExternally?: boolean }
   | { available: true; version: string; body?: string; date?: string }
 
@@ -46,7 +46,7 @@ function emitDesktopUpdateStatus(result: UpdateResult) {
 
 let updateChannel: Promise<string> | null = null
 
-/** Flatpak installs report the `flatpak` channel; updates come from Flathub there. */
+/** Flatpak installs report the `flatpak` channel; they update by installing a newer .flatpak file. */
 function isManagedExternally(): Promise<boolean> {
   updateChannel ??= import('@tauri-apps/api/core')
     .then(({ invoke }) => invoke<string>('desktop_update_channel'))
