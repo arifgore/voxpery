@@ -41,6 +41,9 @@ Important behavior:
 - Server owner is always effectively full-access.
 - `Everyone` role is seeded by default per server and implicitly included for members.
 - Effective channel permissions are computed as: server roles -> category overrides (deny then allow) -> channel overrides (deny then allow).
+- Only members have permissions. A user who is not a member (including after leaving, being kicked or being banned) gets no permissions from any role or override, including `Everyone`'s.
+- Category and channel overrides only carry channel-scoped bits: `VIEW_SERVER`, `MANAGE_CHANNELS`, `SEND_MESSAGES`, `MANAGE_MESSAGES`, `MANAGE_PINS`, `CONNECT_VOICE`, `MUTE_MEMBERS`, `DEAFEN_MEMBERS`, `MOVE_MEMBERS`. Other bits are rejected with `400` and ignored if already stored.
+- Role and permission management is limited to the server owner: creating, editing, deleting and reordering roles, assigning member roles, and creating, editing or deleting category and channel overrides. `MANAGE_ROLES` currently grants read access to roles only; `MANAGE_CHANNELS` still allows editing channels and categories themselves.
 
 ## Auth Endpoints
 
@@ -104,7 +107,7 @@ Notes:
 - Authenticated application, WebSocket, attachment, and voice endpoints return `428` with code `LEGAL_CONSENT_REQUIRED` while the account's legal-document versions are missing or stale. Session inspection, legal acknowledgement, public legal pages, and logout remain available.
 - `forgot-password` always returns a generic success message to prevent account enumeration.
 - Unknown emails do not receive reset messages. Google-connected accounts use the same email recovery flow and can establish or replace a local password without disconnecting Google Sign-In.
-- Connecting Google Sign-In to an existing email/password account preserves the existing local password.
+- Connecting Google Sign-In to an existing email/password account preserves the existing local password when that account's email was already verified. If the email was never verified, Google proves ownership of the address but not of the earlier password, so the local password is removed and the user can set a new one through password recovery. Linking ends existing sessions either way.
 - `email/request-verification` can optionally change the current account email and issues a fresh verification token.
 - `email/confirm` accepts the verification token from the email link and can be redeemed without an existing session.
 
@@ -152,16 +155,16 @@ Notes:
 
 - `GET /api/servers/:server_id/roles`
   - Supports query `?include_system=true` to include `Everyone`.
-- `POST /api/servers/:server_id/roles`
-- `PATCH /api/servers/:server_id/roles/:role_id`
-- `DELETE /api/servers/:server_id/roles/:role_id`
-- `PATCH /api/servers/:server_id/roles/reorder`
+- `POST /api/servers/:server_id/roles` (owner only; `permissions` must contain only known bits)
+- `PATCH /api/servers/:server_id/roles/:role_id` (owner only)
+- `DELETE /api/servers/:server_id/roles/:role_id` (owner only)
+- `PATCH /api/servers/:server_id/roles/reorder` (owner only)
 
 ### Member Role Assignment
 
 - `GET /api/servers/:server_id/members/:user_id/roles`
-- `PUT /api/servers/:server_id/members/:user_id/roles`
-- Legacy compatibility: `PATCH /api/servers/:server_id/members/:user_id/role`
+- `PUT /api/servers/:server_id/members/:user_id/roles` (owner only)
+- Legacy compatibility: `PATCH /api/servers/:server_id/members/:user_id/role` (owner only)
 
 ### Moderation
 
@@ -204,9 +207,9 @@ are unchanged. Category names in URL path segments must be percent-encoded
 - `PATCH /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
 - `DELETE /api/channels/:channel_id` (requires `MANAGE_CHANNELS` at channel scope)
 - `PATCH /api/channels/reorder`
-- `GET /api/channels/:channel_id/overrides`
-- `PUT /api/channels/:channel_id/overrides/:role_id`
-- `DELETE /api/channels/:channel_id/overrides/:role_id`
+- `GET /api/channels/:channel_id/overrides` (requires `MANAGE_CHANNELS` at channel scope)
+- `PUT /api/channels/:channel_id/overrides/:role_id` (owner only; body `{ "allow": 0, "deny": 0 }` with channel-scoped bits)
+- `DELETE /api/channels/:channel_id/overrides/:role_id` (owner only)
 
 ### Categories
 
@@ -217,8 +220,8 @@ are unchanged. Category names in URL path segments must be percent-encoded
   - Optional `move_to` query parameter; channels default-move to `General`.
   - Deletion is blocked if channels cannot be moved safely.
 - `GET /api/channels/server/:server_id/categories/:category/overrides`
-- `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id`
-- `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id`
+- `PUT /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only; channel-scoped bits)
+- `DELETE /api/channels/server/:server_id/categories/:category/overrides/:role_id` (owner only)
 - `PATCH /api/channels/server/:server_id/categories/reorder`
 
 ## Attachment Upload Endpoint

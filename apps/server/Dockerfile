@@ -18,7 +18,14 @@ RUN cargo build --release --locked
 
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update \
+# Apply Debian security updates at build time: the base image and the cached layer can
+# otherwise ship packages (such as perl-base) that already have fixed versions.
+# CI passes a new SECURITY_UPDATES_REFRESH value per build so this layer is never reused
+# from the build cache.
+ARG SECURITY_UPDATES_REFRESH=local
+RUN echo "security updates refresh: ${SECURITY_UPDATES_REFRESH}" \
+    && apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates openssl \
     && echo 'precedence ::ffff:0:0/96  100' >> /etc/gai.conf \
     && rm -rf /var/lib/apt/lists/*

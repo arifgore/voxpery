@@ -892,13 +892,8 @@ async fn create_role(
         ));
     }
 
-    permissions::ensure_server_permission(
-        &state.db,
-        server_id,
-        claims.sub,
-        Permissions::MANAGE_ROLES,
-    )
-    .await?;
+    // Role management is owner-only; see permissions::ensure_server_owner.
+    permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
 
     // Keep custom roles above the implicit Everyone role. Existing servers use a
     // large fixed position for Everyone, so including it in MAX would create new
@@ -920,6 +915,9 @@ async fn create_role(
     .await?;
 
     let permissions = body.permissions.unwrap_or(0);
+    if Permissions::from_bits(permissions).is_none() {
+        return Err(AppError::Validation("Unknown permission bits".into()));
+    }
     let color_opt = body
         .color
         .as_deref()
@@ -973,13 +971,8 @@ async fn reorder_roles(
         )));
     }
 
-    permissions::ensure_server_permission(
-        &state.db,
-        server_id,
-        claims.sub,
-        Permissions::MANAGE_ROLES,
-    )
-    .await?;
+    // Role management is owner-only; see permissions::ensure_server_owner.
+    permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
 
     // Parse role IDs and remember order.
     let mut parsed_ids = Vec::<Uuid>::new();
@@ -1089,6 +1082,9 @@ async fn update_role(
     }
 
     let permissions_opt = body.permissions;
+    if permissions_opt.is_some_and(|bits| Permissions::from_bits(bits).is_none()) {
+        return Err(AppError::Validation("Unknown permission bits".into()));
+    }
     // Interpret color field:
     // If body.color is None, it means the field wasn't sent (don't update).
     // If it's Some(""), clear the color (set to NULL in DB).
@@ -1829,18 +1825,11 @@ async fn update_member_roles(
     .await?
     .ok_or_else(|| AppError::NotFound("Server not found".into()))?;
 
-    permissions::ensure_server_permission_on_connection(
-        &mut tx,
-        server_id,
-        claims.sub,
-        Permissions::MANAGE_ROLES,
-    )
-    .await?;
-
-    // Only the server owner themselves may change the owner's roles.
-    if owner_id == user_id && owner_id != claims.sub {
+    // Role assignment is owner-only, like the rest of role management. The hierarchy checks
+    // below remain for the delegation rules documented in docs/ARCHITECTURE.md.
+    if owner_id != claims.sub {
         return Err(AppError::Forbidden(
-            "Only the server owner can change their own roles".into(),
+            "Only the server owner can manage roles and permissions".into(),
         ));
     }
 

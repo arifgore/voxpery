@@ -53,6 +53,8 @@ function validateChannelDescriptionInput(raw: string): string | null {
 interface ChannelSettingsModalProps {
     channel: Channel
     serverRoles: ServerRole[]
+    /** Permission overrides are owner-only; channel managers only see Overview and Danger Zone. */
+    canManagePermissions: boolean
     onClose: () => void
     onUpdated?: (channel: Channel) => void
     onDeleted?: (channelId: string) => void
@@ -61,6 +63,7 @@ interface ChannelSettingsModalProps {
 export default function ChannelSettingsModal({
     channel,
     serverRoles,
+    canManagePermissions,
     onClose,
     onUpdated,
     onDeleted,
@@ -285,13 +288,15 @@ export default function ChannelSettingsModal({
                             <Settings size={16} />
                             Overview
                         </button>
-                        <button
-                            className={`server-settings-nav__item ${tab === 'permissions' ? 'server-settings-nav__item--active' : ''}`}
-                            onClick={() => { void openPermissionsTab() }}
-                        >
-                            <Shield size={16} />
-                            Permissions
-                        </button>
+                        {canManagePermissions && (
+                            <button
+                                className={`server-settings-nav__item ${tab === 'permissions' ? 'server-settings-nav__item--active' : ''}`}
+                                onClick={() => { void openPermissionsTab() }}
+                            >
+                                <Shield size={16} />
+                                Permissions
+                            </button>
+                        )}
                         <button
                             className={`server-settings-nav__item ${tab === 'danger' ? 'server-settings-nav__item--active' : ''}`}
                             onClick={() => setTab('danger')}

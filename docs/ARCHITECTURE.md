@@ -52,6 +52,15 @@ Google callbacks require a verified provider email. Existing accounts keep the n
   - category overrides (deny then allow)
   - channel overrides (deny then allow)
 - Server owner is full-access override.
+- Membership comes first: a non-member gets no permissions from any role or override, including `Everyone`. WebSocket subscriptions, event delivery, voice access, attachments and channel member lists all use this computation, so leaving, kicks and bans take effect on existing connections too.
+- Overrides only carry channel-scoped bits (`Permissions::CHANNEL_OVERRIDABLE`); server-wide powers such as `MANAGE_SERVER`, `MANAGE_ROLES`, `KICK_MEMBERS`, `BAN_MEMBERS` and `VIEW_AUDIT_LOG` cannot be granted or removed per channel.
+- Role and permission management (roles, role order, member role assignment, category and channel overrides) is owner-only (`permissions::ensure_server_owner`). Channel managers can still edit channels and categories, and moderators keep the moderation permissions their roles give them. This separates managing a channel from managing who may do what, as Discord does with `MANAGE_ROLES` for channel permission edits.
+- Rules for reintroducing delegated role management (not active today):
+  - A non-owner may only create, edit or assign roles whose permissions are a subset of the caller's own effective server permissions, and never `MANAGE_SERVER`.
+  - A non-owner may only create, edit, reorder, assign or remove roles strictly below their own highest role, and may not move any role to or above it.
+  - A non-owner may not change their own roles.
+  - Override edits require the same permission scope at the target channel and may only allow bits the caller holds there.
+  - Taking over server ownership remains a separate, owner-only action; it is distinct from gaining management permissions.
 
 ## Realtime Model
 

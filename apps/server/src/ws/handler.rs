@@ -9,6 +9,7 @@ use axum::{
 use dashmap::mapref::entry::Entry;
 use futures::{SinkExt, StreamExt};
 use std::{
+    borrow::Cow,
     collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -527,6 +528,68 @@ async fn can_receive_subscribed_channel_event(
     }
 }
 
+/// Whether `user_id` can currently view `channel_id` (membership and channel permissions).
+async fn can_view_channel(db: &sqlx::PgPool, user_id: Uuid, channel_id: Uuid) -> bool {
+    matches!(can_subscribe_to_channel(db, user_id, channel_id).await, Ok(true))
+}
+
+/// Voice events reveal who is in which channel, so each recipient only receives the parts
+/// about channels they can view. Returns the event to send (possibly reduced to a leave
+/// when the user moved from a visible channel into a hidden one), or `None`.
+async fn voice_event_for_recipient<'a>(
+    state: &AppState,
+    recipient_id: Uuid,
+    event: &'a WsEvent,
+) -> Option<Cow<'a, WsEvent>> {
+    match event {
+        WsEvent::VoiceStateUpdate {
+            channel_id,
+            user_id,
+            server_id,
+            previous_channel_id,
+            ..
+        } => {
+            if let Some(channel_id) = channel_id {
+                if can_view_channel(&state.db, recipient_id, *channel_id).await {
+                    return Some(Cow::Borrowed(event));
+                }
+                let previous = (*previous_channel_id)?;
+                if !can_view_channel(&state.db, recipient_id, previous).await {
+                    return None;
+                }
+                return Some(Cow::Owned(WsEvent::VoiceStateUpdate {
+                    channel_id: None,
+                    user_id: *user_id,
+                    server_id: *server_id,
+                    channel_active_since_ms: None,
+                    previous_channel_id: Some(previous),
+                }));
+            }
+            match previous_channel_id {
+                Some(previous) => can_view_channel(&state.db, recipient_id, *previous)
+                    .await
+                    .then_some(Cow::Borrowed(event)),
+                // Events from an older server instance carry no channel; keep server scope.
+                None => Some(Cow::Borrowed(event)),
+            }
+        }
+        WsEvent::ScreenShareViewerUpdate { channel_id, .. } => {
+            can_view_channel(&state.db, recipient_id, *channel_id)
+                .await
+                .then_some(Cow::Borrowed(event))
+        }
+        WsEvent::VoiceControlUpdate { user_id, .. } => {
+            match state.voice_sessions.get(user_id).map(|entry| *entry) {
+                Some(channel_id) => can_view_channel(&state.db, recipient_id, channel_id)
+                    .await
+                    .then_some(Cow::Borrowed(event)),
+                None => Some(Cow::Borrowed(event)),
+            }
+        }
+        _ => Some(Cow::Borrowed(event)),
+    }
+}
+
 fn is_allowed_ws_origin(req: &Request, state: &AppState) -> bool {
     let origin = req
         .headers()
@@ -896,8 +959,15 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                         WsEvent::Signal { .. } => false,
                     };
 
-                    if should_send {
-                        match serde_json::to_string(&event) {
+                    let outgoing = if !should_send {
+                        None
+                    } else if is_own_voice_event {
+                        Some(Cow::Borrowed(&event))
+                    } else {
+                        voice_event_for_recipient(&send_state, user_id, &event).await
+                    };
+                    if let Some(event) = outgoing {
+                        match serde_json::to_string(event.as_ref()) {
                             Ok(json) => {
                                 if ws_sender.send(Message::Text(json.into())).await.is_err() {
                                     break;
@@ -1029,6 +1099,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                 channel_active_since_ms: Some(
                                                     channel_active_since_ms,
                                                 ),
+                                                previous_channel_id: None,
                                             });
                                             let control_state = recv_state
                                                 .voice_controls
@@ -1209,6 +1280,8 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                 channel_active_since_ms: Some(
                                                     channel_active_since_ms,
                                                 ),
+                                                previous_channel_id: previous_channel_id
+                                                    .filter(|previous| *previous != channel_id),
                                             },
                                         )
                                         .await;
@@ -1240,6 +1313,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                                     channel_active_since_ms: Some(
                                                         channel_active_since_ms,
                                                     ),
+                                                    previous_channel_id: None,
                                                 });
                                                 let control_state = recv_state
                                                     .voice_controls
@@ -1283,6 +1357,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                                             user_id,
                                             server_id: previous_server_id,
                                             channel_active_since_ms: None,
+                                            previous_channel_id: Some(previous_channel_id),
                                         },
                                     )
                                     .await;
@@ -1968,6 +2043,7 @@ async fn handle_socket(socket: WebSocket, state: Arc<AppState>, claims: Claims, 
                     user_id,
                     server_id: previous_server_id,
                     channel_active_since_ms: None,
+                    previous_channel_id: Some(previous_channel_id),
                 },
             )
             .await;

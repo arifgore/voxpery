@@ -881,17 +881,19 @@ export default function ChannelSidebar({
                     >
                         Rename Category
                     </button>
-                    <button
-                        type="button"
-                        className="server-context-menu-item"
-                        role="menuitem"
-                        onClick={() => {
-                            onOpenCategoryPermissions?.(categoryMenu.category)
-                            setCategoryMenu(null)
-                        }}
-                    >
-                        Category Permissions
-                    </button>
+                    {onOpenCategoryPermissions && (
+                        <button
+                            type="button"
+                            className="server-context-menu-item"
+                            role="menuitem"
+                            onClick={() => {
+                                onOpenCategoryPermissions(categoryMenu.category)
+                                setCategoryMenu(null)
+                            }}
+                        >
+                            Category Permissions
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="server-context-menu-item danger"

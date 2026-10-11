@@ -69,7 +69,6 @@ describe('MemberSidebar profile interaction', () => {
           canKickMembers={false}
           canBanMembers={false}
           canTimeoutMembers={false}
-          canManageRolesFromPerms={false}
         />
       </MemoryRouter>,
     )
@@ -112,7 +111,6 @@ describe('MemberSidebar profile interaction', () => {
           canKickMembers={false}
           canBanMembers={false}
           canTimeoutMembers={false}
-          canManageRolesFromPerms={false}
         />
       </MemoryRouter>,
     )

@@ -453,7 +453,9 @@ async fn update_channel_override(
         .await?
         .ok_or(AppError::NotFound("Channel not found".into()))?;
 
-    ensure_channel_manage_permission_for_channel(&state, channel_id, claims.sub).await?;
+    // Permission overrides are owner-only; channel managers can still edit the channel itself.
+    permissions::ensure_server_owner(&state.db, channel.server_id, claims.sub).await?;
+    permissions::validate_override_bits(body.allow, body.deny)?;
 
     let role_exists = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM server_roles WHERE id = $1 AND server_id = $2",
@@ -510,7 +512,8 @@ async fn delete_channel_override(
         .await?
         .ok_or(AppError::NotFound("Channel not found".into()))?;
 
-    ensure_channel_manage_permission_for_channel(&state, channel_id, claims.sub).await?;
+    // Permission overrides are owner-only; channel managers can still edit the channel itself.
+    permissions::ensure_server_owner(&state.db, _channel.server_id, claims.sub).await?;
 
     sqlx::query("DELETE FROM channel_role_overrides WHERE channel_id = $1 AND role_id = $2")
         .bind(channel_id)
@@ -912,13 +915,9 @@ async fn update_category_override(
     Path((server_id, category, role_id)): Path<(Uuid, String, Uuid)>,
     Json(body): Json<UpdateCategoryOverrideRequest>,
 ) -> Result<Json<CategoryOverride>, AppError> {
-    permissions::ensure_server_permission(
-        &state.db,
-        server_id,
-        claims.sub,
-        Permissions::MANAGE_CHANNELS,
-    )
-    .await?;
+    // Permission overrides are owner-only; channel managers can still edit the category itself.
+    permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
+    permissions::validate_override_bits(body.allow, body.deny)?;
 
     let category = category.trim();
     if category.is_empty() {
@@ -969,13 +968,8 @@ async fn delete_category_override(
     Extension(claims): Extension<Claims>,
     Path((server_id, category, role_id)): Path<(Uuid, String, Uuid)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    permissions::ensure_server_permission(
-        &state.db,
-        server_id,
-        claims.sub,
-        Permissions::MANAGE_CHANNELS,
-    )
-    .await?;
+    // Permission overrides are owner-only; channel managers can still edit the category itself.
+    permissions::ensure_server_owner(&state.db, server_id, claims.sub).await?;
 
     let category = category.trim();
     if category.is_empty() {

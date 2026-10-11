@@ -170,6 +170,9 @@ jobs:
           context: ./apps/server
           file: ./apps/server/Dockerfile
           push: true
+          pull: true
+          build-args: |
+            SECURITY_UPDATES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           tags: voxpery/voxpery-server:${{ needs.prepare.outputs.image_tag }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
@@ -181,6 +184,7 @@ jobs:
           context: ./apps/web
           file: ./apps/web/Dockerfile
           push: true
+          pull: true
           tags: voxpery/voxpery-web:${{ needs.prepare.outputs.image_tag }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}

@@ -189,6 +189,8 @@ Legacy custom signaling event.
 
 - `VoiceStateUpdate`
   - `channel_id: null` means user left voice.
+  - `previous_channel_id` (optional) is the channel the user left when leaving or switching channels.
+  - Voice events are delivered per recipient: `VoiceStateUpdate`, `VoiceControlUpdate` and `ScreenShareViewerUpdate` only reach members who can currently view the voice channel involved. When a user moves from a channel the recipient can view into one they cannot, the recipient receives a leave event (`channel_id: null`, `previous_channel_id` set) instead of the new channel.
   - `channel_active_since_ms` is the backend epoch millisecond timestamp for when the channel became non-empty. It is `null` on leave events.
   - A member receives their own voice state and control updates after leaving voice even without an active channel subscription; server membership is still checked before delivery.
 - `VoiceControlUpdate`

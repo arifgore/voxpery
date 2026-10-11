@@ -335,6 +335,9 @@ jobs:
           context: ./apps/server
           file: ./apps/server/Dockerfile
           push: true
+          pull: true
+          build-args: |
+            SECURITY_UPDATES_REFRESH=${{ github.run_id }}-${{ github.run_attempt }}
           tags: ${{ steps.tags.outputs.backend_tags }}
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
@@ -346,6 +349,7 @@ jobs:
           context: ./apps/web
           file: ./apps/web/Dockerfile
           push: true
+          pull: true
           tags: ${{ steps.tags.outputs.frontend_tags }}
           build-args: |
             VITE_API_URL=${{ secrets.VITE_API_URL }}
