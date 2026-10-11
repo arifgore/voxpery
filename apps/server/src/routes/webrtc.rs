@@ -272,6 +272,21 @@ async fn livekit_webhook(
         return Ok(StatusCode::NO_CONTENT);
     };
     if event.event == "participant_joined" {
+        // A join token stays usable until it expires, so recheck current membership and
+        // channel access on every join and reconnect, not only when the token was issued.
+        if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
+            if let Err(error) = remove_livekit_participant_checked(
+                &state,
+                channel_id,
+                user_id,
+                "voice access no longer allowed",
+            )
+            .await
+            {
+                tracing::error!("LiveKit unauthorized participant removal failed: {}", error);
+            }
+            return Ok(StatusCode::NO_CONTENT);
+        }
         if let Some(moderation) =
             voice_moderation::for_channel(&state.db, user_id, channel_id).await?
         {

@@ -50,6 +50,17 @@ struct LivekitParticipantPermission {
     can_publish_data: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct ListParticipantsRequest<'a> {
+    room: &'a str,
+}
+
+#[derive(Debug, Deserialize)]
+struct ListParticipantsResponse {
+    #[serde(default)]
+    participants: Vec<LivekitParticipantInfo>,
+}
+
 #[derive(Debug, Deserialize)]
 struct LivekitParticipantInfo {
     sid: String,
@@ -135,6 +146,7 @@ pub(crate) async fn clear_local_voice_session(
             user_id,
             server_id,
             channel_active_since_ms: None,
+            previous_channel_id: Some(channel_id),
         },
     )
     .await;
@@ -385,6 +397,47 @@ pub(crate) async fn remove_livekit_participant_checked(
     }
 }
 
+/// User ids connected to the LiveKit room for `channel_id`, whether or not they reported
+/// the session to Voxpery. `None` when voice is not configured.
+async fn livekit_room_user_ids(
+    state: &Arc<AppState>,
+    channel_id: Uuid,
+) -> Result<Option<Vec<Uuid>>, AppError> {
+    let (base_url, room, token) = match livekit_admin_request_parts(state, channel_id) {
+        Ok(parts) => parts,
+        Err(AppError::FeatureDisabled(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let url = format!("{base_url}/twirp/livekit.RoomService/ListParticipants");
+    let response = state
+        .release_http_client
+        .post(url)
+        .bearer_auth(token)
+        .json(&ListParticipantsRequest { room: &room })
+        .send()
+        .await
+        .map_err(|e| AppError::Internal(format!("LiveKit participant listing failed: {e}")))?;
+    if response.status() == StatusCode::NOT_FOUND {
+        return Ok(Some(Vec::new()));
+    }
+    if !response.status().is_success() {
+        return Err(AppError::Internal(format!(
+            "LiveKit participant listing returned {}",
+            response.status()
+        )));
+    }
+    let body = response
+        .json::<ListParticipantsResponse>()
+        .await
+        .map_err(|e| AppError::Internal(format!("Invalid LiveKit participant list: {e}")))?;
+    Ok(Some(
+        body.participants
+            .iter()
+            .filter_map(|participant| Uuid::parse_str(&participant.identity).ok())
+            .collect(),
+    ))
+}
+
 async fn voice_channel_ids_for_server(
     state: &Arc<AppState>,
     server_id: Uuid,
@@ -442,6 +495,28 @@ pub async fn revoke_invalid_voice_sessions_for_server(
         if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
             clear_local_voice_session(state, user_id, channel_id, reason).await;
             remove_livekit_participant(state, channel_id, user_id, reason).await;
+        }
+    }
+
+    // A client can connect to LiveKit with its token without reporting the session to
+    // Voxpery, so also recheck everyone actually present in each room.
+    for channel_id in voice_channel_ids {
+        let user_ids = match livekit_room_user_ids(state, channel_id).await {
+            Ok(Some(user_ids)) => user_ids,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                tracing::warn!(
+                    "LiveKit participant recheck failed for room {}: {}",
+                    channel_id,
+                    error
+                );
+                continue;
+            }
+        };
+        for user_id in user_ids {
+            if !can_join_voice_channel(&state.db, user_id, channel_id).await? {
+                remove_livekit_participant(state, channel_id, user_id, reason).await;
+            }
         }
     }
 

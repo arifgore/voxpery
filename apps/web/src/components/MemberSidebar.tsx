@@ -135,7 +135,6 @@ export default function MemberSidebar({
     canKickMembers,
     canBanMembers,
     canTimeoutMembers,
-    canManageRolesFromPerms,
     onReportMember,
     variant = 'sidebar',
     interactive = true,
@@ -144,7 +143,6 @@ export default function MemberSidebar({
     canKickMembers: boolean
     canBanMembers: boolean
     canTimeoutMembers: boolean
-    canManageRolesFromPerms: boolean
     onReportMember?: (member: { user_id: string; username: string }) => void
     variant?: 'sidebar' | 'sheet'
     interactive?: boolean
@@ -309,7 +307,8 @@ export default function MemberSidebar({
         }
     }, [contextMenu, menuRef])
 
-    const canManageRoles = isOwner || canManageRolesFromPerms
+    // Role assignment is owner-only (enforced by the server as well).
+    const canManageRoles = isOwner
 
     const patchScopedMembers = useCallback(
         (userId: string, patch: Partial<MemberItemProps['member']>) => {

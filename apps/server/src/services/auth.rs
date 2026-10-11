@@ -11,6 +11,31 @@ use uuid::Uuid;
 use crate::errors::AppError;
 use crate::middleware::auth::Claims;
 
+/// Google proves ownership of the address. A password set on an account whose email was
+/// never verified was not proven to belong to that owner (someone may have registered the
+/// address first), so it is removed; verified accounts keep their password. Existing
+/// sessions end either way.
+pub(crate) const LINK_GOOGLE_IDENTITY_SQL: &str = "UPDATE users
+     SET google_id = $1,
+         password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END,
+         email_verified = TRUE,
+         token_version = token_version + 1
+     WHERE id = $2";
+
+/// Link a Google identity to an existing local account with the same email address.
+pub async fn link_google_identity(
+    db: &sqlx::PgPool,
+    user_id: Uuid,
+    google_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(LINK_GOOGLE_IDENTITY_SQL)
+        .bind(google_id)
+        .bind(user_id)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
 /// Hash a password using Argon2id.
 pub fn hash_password(password: &str) -> Result<String, AppError> {
     let salt = SaltString::generate(&mut OsRng);

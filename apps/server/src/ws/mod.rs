@@ -67,6 +67,9 @@ pub enum WsEvent {
         user_id: Uuid,
         server_id: Option<Uuid>, // server that owns the channel; None if left voice
         channel_active_since_ms: Option<u64>, // Same for every client while the voice channel remains non-empty
+        /// Channel the user left (leaving or switching), so delivery can respect who may view it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        previous_channel_id: Option<Uuid>,
     },
     /// Voice control state update (mute/deafen).
     VoiceControlUpdate {

@@ -10,27 +10,65 @@ pub const AVATAR_PROXY_CACHE_CONTROL: &str = "public, max-age=86400, stale-while
 
 pub fn is_private_or_local_ip(ip: &IpAddr) -> bool {
     match ip {
-        IpAddr::V4(v4) => {
-            let octets = v4.octets();
-            v4.is_private()
-                || v4.is_loopback()
-                || v4.is_link_local()
-                || v4.is_multicast()
-                || v4.is_unspecified()
-                || *v4 == Ipv4Addr::BROADCAST
-                || octets[0] == 0
-                || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000)
-                || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
-                || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
-        }
+        IpAddr::V4(v4) => is_private_or_local_ipv4(v4),
         IpAddr::V6(v6) => {
+            // IPv6 forms that carry an IPv4 address reach that IPv4 host, so apply the IPv4
+            // rules to it: IPv4-mapped/-compatible (::ffff:a.b.c.d, ::a.b.c.d), NAT64
+            // (64:ff9b::/96) and 6to4 (2002::/16).
+            if let Some(v4) = embedded_ipv4(v6) {
+                if is_private_or_local_ipv4(&v4) {
+                    return true;
+                }
+            }
+            let segments = v6.segments();
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
                 || v6.is_multicast()
+                // Site-local (deprecated), documentation and Teredo ranges.
+                || (segments[0] & 0xffc0) == 0xfec0
+                || (segments[0] == 0x2001 && segments[1] == 0x0db8)
+                || (segments[0] == 0x2001 && segments[1] == 0x0000)
         }
     }
+}
+
+fn is_private_or_local_ipv4(v4: &Ipv4Addr) -> bool {
+    let octets = v4.octets();
+    v4.is_private()
+        || v4.is_loopback()
+        || v4.is_link_local()
+        || v4.is_multicast()
+        || v4.is_unspecified()
+        || v4.is_documentation()
+        || *v4 == Ipv4Addr::BROADCAST
+        || octets[0] == 0
+        || octets[0] >= 240
+        || (octets[0] == 100 && (octets[1] & 0b1100_0000) == 0b0100_0000)
+        || (octets[0] == 198 && (octets[1] == 18 || octets[1] == 19))
+        || (octets[0] == 192 && octets[1] == 0 && octets[2] == 0)
+}
+
+fn embedded_ipv4(v6: &std::net::Ipv6Addr) -> Option<Ipv4Addr> {
+    let segments = v6.segments();
+    let from_segments = |high: u16, low: u16| {
+        Ipv4Addr::new((high >> 8) as u8, high as u8, (low >> 8) as u8, low as u8)
+    };
+    if let Some(v4) = v6.to_ipv4_mapped() {
+        return Some(v4);
+    }
+    // IPv4-compatible ::a.b.c.d (the loopback/unspecified forms are handled as IPv6).
+    if segments[..6].iter().all(|segment| *segment == 0) && !v6.is_loopback() && !v6.is_unspecified() {
+        return Some(from_segments(segments[6], segments[7]));
+    }
+    if segments[0] == 0x0064 && segments[1] == 0xff9b && segments[2..6].iter().all(|s| *s == 0) {
+        return Some(from_segments(segments[6], segments[7]));
+    }
+    if segments[0] == 0x2002 {
+        return Some(from_segments(segments[1], segments[2]));
+    }
+    None
 }
 
 pub fn is_forbidden_avatar_host(host: &str) -> bool {
@@ -64,7 +102,13 @@ pub fn validate_external_image_url(raw: &str, label: &str) -> Result<Url, AppErr
     let host = parsed
         .host_str()
         .ok_or_else(|| AppError::Validation(format!("{label} URL must include a host")))?;
-    if let Ok(ip) = host.parse::<IpAddr>() {
+    // IPv6 literals keep their brackets in host_str ("[::1]").
+    let literal_ip = host
+        .strip_prefix('[')
+        .and_then(|inner| inner.strip_suffix(']'))
+        .unwrap_or(host)
+        .parse::<IpAddr>();
+    if let Ok(ip) = literal_ip {
         if is_private_or_local_ip(&ip) {
             return Err(AppError::Validation(format!(
                 "{label} URL cannot point to local or private network addresses"
@@ -142,6 +186,36 @@ mod tests {
         assert!(
             validate_external_avatar_url("https://metadata.google.internal/avatar.png").is_err()
         );
+    }
+
+    #[test]
+    fn rejects_private_ipv4_embedded_in_ipv6() {
+        for blocked in [
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:169.254.169.254",
+            "::ffff:192.168.1.10",
+            "::127.0.0.1",
+            "64:ff9b::a9fe:a9fe",
+            "2002:7f00:1::1",
+            "2001:db8::1",
+            "fec0::1",
+        ] {
+            let ip: IpAddr = blocked.parse().unwrap();
+            assert!(is_private_or_local_ip(&ip), "{blocked} must be blocked");
+        }
+        for public in ["::ffff:8.8.8.8", "2606:4700:4700::1111", "8.8.8.8", "64:ff9b::808:808"] {
+            let ip: IpAddr = public.parse().unwrap();
+            assert!(!is_private_or_local_ip(&ip), "{public} must stay allowed");
+        }
+    }
+
+    #[test]
+    fn rejects_private_ipv6_literal_urls() {
+        assert!(validate_external_avatar_url("https://[::1]/avatar.png").is_err());
+        assert!(validate_external_avatar_url("https://[::ffff:127.0.0.1]/avatar.png").is_err());
+        assert!(validate_external_avatar_url("https://[::ffff:a9fe:a9fe]/avatar.png").is_err());
+        assert!(validate_external_avatar_url("https://[2606:4700:4700::1111]/avatar.png").is_ok());
     }
 
     #[test]

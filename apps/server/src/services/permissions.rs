@@ -26,6 +26,56 @@ bitflags::bitflags! {
     }
 }
 
+impl Permissions {
+    /// Bits a channel or category override may allow or deny. Server-wide powers (server
+    /// settings, roles, kick, ban, audit log) are never granted or removed per channel.
+    pub const CHANNEL_OVERRIDABLE: Permissions = Permissions::VIEW_SERVER
+        .union(Permissions::MANAGE_CHANNELS)
+        .union(Permissions::SEND_MESSAGES)
+        .union(Permissions::MANAGE_MESSAGES)
+        .union(Permissions::MANAGE_PINS)
+        .union(Permissions::CONNECT_VOICE)
+        .union(Permissions::MUTE_MEMBERS)
+        .union(Permissions::DEAFEN_MEMBERS)
+        .union(Permissions::MOVE_MEMBERS);
+}
+
+/// Rejects override bits outside [`Permissions::CHANNEL_OVERRIDABLE`].
+pub fn validate_override_bits(allow: i64, deny: i64) -> Result<(), AppError> {
+    let within_scope = |bits: i64| {
+        Permissions::from_bits(bits)
+            .is_some_and(|perms| Permissions::CHANNEL_OVERRIDABLE.contains(perms))
+    };
+    if within_scope(allow) && within_scope(deny) {
+        Ok(())
+    } else {
+        Err(AppError::Validation(
+            "Channel permission overrides can only change channel permissions".into(),
+        ))
+    }
+}
+
+/// Role and permission management (roles, role assignment, channel and category
+/// overrides) is limited to the server owner. See docs/ARCHITECTURE.md for the rules
+/// that apply if delegation is reintroduced.
+pub async fn ensure_server_owner(
+    db: &PgPool,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<(), AppError> {
+    let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
+        .bind(server_id)
+        .fetch_optional(db)
+        .await?;
+    match owner_id {
+        None => Err(AppError::NotFound("Server not found".into())),
+        Some(owner_id) if owner_id == user_id => Ok(()),
+        Some(_) => Err(AppError::Forbidden(
+            "Only the server owner can manage roles and permissions".into(),
+        )),
+    }
+}
+
 /// Compute the base (server-level) permissions for a user in a server by
 /// combining all roles assigned to that user.
 pub async fn get_user_server_permissions(
@@ -42,6 +92,17 @@ pub async fn get_user_server_permissions_on_connection(
     server_id: Uuid,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
+    Ok(member_server_permissions_on_connection(db, server_id, user_id)
+        .await?
+        .unwrap_or_else(Permissions::empty))
+}
+
+/// Server-level permissions, or `None` when the user is neither the owner nor a member.
+async fn member_server_permissions_on_connection(
+    db: &mut PgConnection,
+    server_id: Uuid,
+    user_id: Uuid,
+) -> Result<Option<Permissions>, AppError> {
     // Owner always has all permissions.
     let owner_id: Option<Uuid> = sqlx::query_scalar("SELECT owner_id FROM servers WHERE id = $1")
         .bind(server_id)
@@ -49,7 +110,7 @@ pub async fn get_user_server_permissions_on_connection(
         .await?;
 
     if owner_id.map(|id| id == user_id).unwrap_or(false) {
-        return Ok(Permissions::all());
+        return Ok(Some(Permissions::all()));
     }
 
     // Non-members have no server permissions.
@@ -61,7 +122,7 @@ pub async fn get_user_server_permissions_on_connection(
     .fetch_one(&mut *db)
     .await?;
     if is_member == 0 {
-        return Ok(Permissions::empty());
+        return Ok(None);
     }
 
     // Sum all role permissions with bitwise OR.
@@ -91,7 +152,7 @@ pub async fn get_user_server_permissions_on_connection(
         }
     }
 
-    Ok(perms)
+    Ok(Some(perms))
 }
 
 /// Compute the effective permissions for a user in a specific channel.
@@ -125,8 +186,12 @@ pub async fn get_user_channel_permissions_on_connection(
         None => return Ok(Permissions::empty()),
     };
 
-    let mut perms: Permissions =
-        get_user_server_permissions_on_connection(&mut *db, server_id, user_id).await?;
+    // Non-members get nothing, not even the Everyone role's channel or category overrides.
+    let Some(mut perms) =
+        member_server_permissions_on_connection(&mut *db, server_id, user_id).await?
+    else {
+        return Ok(Permissions::empty());
+    };
     // Full admin (MANAGE_SERVER) bypasses channel/category overrides.
     if perms.contains(Permissions::MANAGE_SERVER) {
         return Ok(Permissions::all());
@@ -158,16 +223,7 @@ pub async fn get_user_channel_permissions_on_connection(
         .fetch_all(&mut *db)
         .await?;
 
-        let mut deny_mask = Permissions::empty();
-        let mut allow_mask = Permissions::empty();
-        for (allow_bits, deny_bits) in category_overrides {
-            if let Some(d) = Permissions::from_bits(deny_bits) {
-                deny_mask |= d;
-            }
-            if let Some(a) = Permissions::from_bits(allow_bits) {
-                allow_mask |= a;
-            }
-        }
+        let (allow_mask, deny_mask) = override_masks(category_overrides);
         perms.remove(deny_mask);
         perms |= allow_mask;
     }
@@ -197,10 +253,20 @@ pub async fn get_user_channel_permissions_on_connection(
     .fetch_all(&mut *db)
     .await?;
 
-    let mut deny_mask = Permissions::empty();
-    let mut allow_mask = Permissions::empty();
+    // Apply deny first, then allow.
+    let (allow_mask, deny_mask) = override_masks(overrides);
+    perms.remove(deny_mask);
+    perms |= allow_mask;
 
-    for (allow_bits, deny_bits) in overrides {
+    Ok(perms)
+}
+
+/// Combines override rows into (allow, deny), keeping only channel-scoped bits so rows
+/// stored before validation existed cannot grant server-wide powers.
+fn override_masks(rows: Vec<(i64, i64)>) -> (Permissions, Permissions) {
+    let mut allow_mask = Permissions::empty();
+    let mut deny_mask = Permissions::empty();
+    for (allow_bits, deny_bits) in rows {
         if let Some(d) = Permissions::from_bits(deny_bits) {
             deny_mask |= d;
         }
@@ -208,12 +274,10 @@ pub async fn get_user_channel_permissions_on_connection(
             allow_mask |= a;
         }
     }
-
-    // Apply deny first, then allow.
-    perms.remove(deny_mask);
-    perms |= allow_mask;
-
-    Ok(perms)
+    (
+        allow_mask & Permissions::CHANNEL_OVERRIDABLE,
+        deny_mask & Permissions::CHANNEL_OVERRIDABLE,
+    )
 }
 
 /// Compute effective permissions for a user in a category scope.
@@ -227,7 +291,13 @@ pub async fn get_user_category_permissions(
     category: &str,
     user_id: Uuid,
 ) -> Result<Permissions, AppError> {
-    let mut perms: Permissions = get_user_server_permissions(db, server_id, user_id).await?;
+    let mut connection = db.acquire().await?;
+    let Some(mut perms) =
+        member_server_permissions_on_connection(&mut connection, server_id, user_id).await?
+    else {
+        return Ok(Permissions::empty());
+    };
+    drop(connection);
     // Full admin (MANAGE_SERVER) bypasses category overrides.
     if perms.contains(Permissions::MANAGE_SERVER) {
         return Ok(Permissions::all());
@@ -262,17 +332,7 @@ pub async fn get_user_category_permissions(
     .fetch_all(db)
     .await?;
 
-    let mut deny_mask = Permissions::empty();
-    let mut allow_mask = Permissions::empty();
-    for (allow_bits, deny_bits) in category_overrides {
-        if let Some(d) = Permissions::from_bits(deny_bits) {
-            deny_mask |= d;
-        }
-        if let Some(a) = Permissions::from_bits(allow_bits) {
-            allow_mask |= a;
-        }
-    }
-
+    let (allow_mask, deny_mask) = override_masks(category_overrides);
     perms.remove(deny_mask);
     perms |= allow_mask;
     Ok(perms)

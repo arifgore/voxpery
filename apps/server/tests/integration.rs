@@ -7877,3 +7877,867 @@ async fn desktop_exchange_rejects_wrong_pkce_and_expired_codes() {
         StatusCode::UNAUTHORIZED
     );
 }
+
+// ---------------------------------------------------------------------------
+// Authorization and voice access regressions
+// ---------------------------------------------------------------------------
+
+type TestWs = WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+const PERM_VIEW: i64 = 1 << 0;
+const PERM_MANAGE_SERVER: i64 = 1 << 1;
+const PERM_MANAGE_ROLES: i64 = 1 << 2;
+const PERM_MANAGE_CHANNELS: i64 = 1 << 3;
+const PERM_KICK: i64 = 1 << 4;
+const PERM_BAN: i64 = 1 << 5;
+const PERM_SEND: i64 = 1 << 7;
+const PERM_MANAGE_MESSAGES: i64 = 1 << 8;
+const PERM_CONNECT_VOICE: i64 = 1 << 10;
+
+async fn api_json(
+    app: &mut axum::Router,
+    method: &str,
+    uri: &str,
+    auth: &str,
+    body: Option<serde_json::Value>,
+) -> (StatusCode, serde_json::Value) {
+    let mut builder = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Authorization", auth);
+    let body = match body {
+        Some(value) => {
+            builder = builder.header("content-type", "application/json");
+            Body::from(serde_json::to_vec(&value).unwrap())
+        }
+        None => Body::empty(),
+    };
+    let (status, bytes) = oneshot(app, builder.body(body).unwrap()).await;
+    let value = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|_| json!(String::from_utf8_lossy(&bytes).to_string()));
+    (status, value)
+}
+
+/// Registers a user and returns (Authorization header value, user id, password).
+async fn register_named_user(
+    app: &mut axum::Router,
+    label: &str,
+) -> (String, Uuid, &'static str) {
+    let suffix = Uuid::new_v4();
+    let password = test_credential(label);
+    let (token, user_id) = register_user(
+        app,
+        &format!("authz-{label}-{suffix}@example.com"),
+        &format!("authz_{label}_{}", suffix.as_u128() % 1_000_000),
+        password,
+    )
+    .await;
+    (format!("Bearer {token}"), user_id, password)
+}
+
+async fn join_with_invite(app: &mut axum::Router, auth: &str, invite_code: &str) {
+    let (status, body) = api_json(
+        app,
+        "POST",
+        "/api/servers/join",
+        auth,
+        Some(json!({ "invite_code": invite_code })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "join failed: {body}");
+}
+
+async fn everyone_role_id(state: &AppState, server_id: Uuid) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) = 'everyone'",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap()
+}
+
+async fn voice_channel_of(state: &AppState, server_id: Uuid) -> Uuid {
+    sqlx::query_scalar(
+        "SELECT id FROM channels WHERE server_id = $1 AND channel_type = 'voice' ORDER BY position LIMIT 1",
+    )
+    .bind(server_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap()
+}
+
+/// Inserts a role directly and assigns it, so tests can set up a non-owner manager.
+async fn grant_role_with_permissions(
+    state: &AppState,
+    server_id: Uuid,
+    user_id: Uuid,
+    name: &str,
+    position: i32,
+    permissions: i64,
+) -> Uuid {
+    let role_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO server_roles (id, server_id, name, color, position, permissions) VALUES ($1, $2, $3, NULL, $4, $5)",
+    )
+    .bind(role_id)
+    .bind(server_id)
+    .bind(name)
+    .bind(position)
+    .bind(permissions)
+    .execute(&state.db)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO server_member_roles (server_id, user_id, role_id) VALUES ($1, $2, $3)")
+        .bind(server_id)
+        .bind(user_id)
+        .bind(role_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    role_id
+}
+
+async fn put_channel_override_row(
+    state: &AppState,
+    channel_id: Uuid,
+    role_id: Uuid,
+    allow: i64,
+    deny: i64,
+) {
+    sqlx::query(
+        r#"INSERT INTO channel_role_overrides (channel_id, role_id, allow, deny)
+           VALUES ($1, $2, $3, $4)
+           ON CONFLICT (channel_id, role_id) DO UPDATE SET allow = EXCLUDED.allow, deny = EXCLUDED.deny"#,
+    )
+    .bind(channel_id)
+    .bind(role_id)
+    .bind(allow)
+    .bind(deny)
+    .execute(&state.db)
+    .await
+    .unwrap();
+}
+
+async fn spawn_ws_app(state: &Arc<AppState>) -> std::net::SocketAddr {
+    let ws_app = build_app(state.clone(), vec!["http://localhost:5173".to_string()]);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, ws_app).await;
+    });
+    addr
+}
+
+async fn connect_ws(addr: std::net::SocketAddr, auth: &str) -> TestWs {
+    let token = auth.trim_start_matches("Bearer ");
+    let mut request = format!("ws://{addr}/ws").into_client_request().unwrap();
+    request.headers_mut().insert(
+        "Sec-WebSocket-Protocol",
+        HeaderValue::from_str(&format!("voxpery.auth,{token}")).unwrap(),
+    );
+    request
+        .headers_mut()
+        .insert("Origin", HeaderValue::from_static("http://localhost:5173"));
+    let (stream, _) = connect_async(request)
+        .await
+        .expect("websocket must connect");
+    stream
+}
+
+async fn ws_send(stream: &mut TestWs, value: serde_json::Value) {
+    stream
+        .send(WsMessage::Text(value.to_string().into()))
+        .await
+        .unwrap();
+}
+
+/// Sends a Ping and waits for its Pong: earlier client messages on this socket are processed.
+async fn ws_barrier(stream: &mut TestWs) {
+    ws_send(stream, json!({ "type": "Ping", "data": { "sent_at_ms": 1 } })).await;
+    receive_ws_event(stream, "Pong").await;
+}
+
+async fn ws_subscribe(stream: &mut TestWs, channel_ids: &[Uuid]) {
+    ws_send(
+        stream,
+        json!({ "type": "Subscribe", "data": { "channel_ids": channel_ids } }),
+    )
+    .await;
+    ws_barrier(stream).await;
+}
+
+/// Fails if an event of `unexpected_type` mentioning `marker` arrives within `within`.
+async fn assert_no_ws_event_mentioning(
+    stream: &mut TestWs,
+    unexpected_type: &str,
+    marker: &str,
+    within: std::time::Duration,
+) {
+    let deadline = tokio::time::Instant::now() + within;
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            return;
+        }
+        match tokio::time::timeout(remaining, stream.next()).await {
+            Err(_) | Ok(None) | Ok(Some(Err(_))) => return,
+            Ok(Some(Ok(WsMessage::Text(text)))) => {
+                let event: serde_json::Value = serde_json::from_str(&text).unwrap();
+                if event["type"] == unexpected_type {
+                    assert!(
+                        !text.contains(marker),
+                        "unexpected websocket event for {marker}: {event}"
+                    );
+                }
+            }
+            Ok(Some(Ok(_))) => {}
+        }
+    }
+}
+
+#[tokio::test]
+async fn removed_members_gain_nothing_from_everyone_channel_overrides() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Override Guild")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    // Explicit Everyone allows on both channels: these must still only apply to members.
+    put_channel_override_row(&state, text_channel_id, everyone_id, PERM_VIEW | PERM_SEND, 0).await;
+    put_channel_override_row(
+        &state,
+        voice_channel_id,
+        everyone_id,
+        PERM_VIEW | PERM_CONNECT_VOICE,
+        0,
+    )
+    .await;
+
+    let (leaver_auth, leaver_id, _) = register_named_user(&mut app, "leaver").await;
+    let (kicked_auth, kicked_id, _) = register_named_user(&mut app, "kicked").await;
+    let (banned_auth, banned_id, _) = register_named_user(&mut app, "banned").await;
+    for auth in [&leaver_auth, &kicked_auth, &banned_auth] {
+        join_with_invite(&mut app, auth, &invite_code).await;
+    }
+    for user_id in [leaver_id, kicked_id, banned_id] {
+        assert!(
+            voxpery_server::ws::access::can_subscribe_to_channel(&state.db, user_id, text_channel_id)
+                .await
+                .unwrap(),
+            "members can view the channel before removal"
+        );
+    }
+
+    let addr = spawn_ws_app(&state).await;
+    let mut owner_ws = connect_ws(addr, &owner_auth).await;
+    ws_subscribe(&mut owner_ws, &[text_channel_id]).await;
+    // An existing connection subscribed while the user was still a member.
+    let mut leaver_ws = connect_ws(addr, &leaver_auth).await;
+    ws_subscribe(&mut leaver_ws, &[text_channel_id]).await;
+
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/leave"),
+        &leaver_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "leave failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/members/{kicked_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "kick failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/members/{banned_id}/ban"),
+        &owner_auth,
+        Some(json!({ "reason": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "ban failed: {body}");
+
+    for (label, user_id, auth) in [
+        ("left", leaver_id, &leaver_auth),
+        ("kicked", kicked_id, &kicked_auth),
+        ("banned", banned_id, &banned_auth),
+    ] {
+        let channel_perms = voxpery_server::services::permissions::get_user_channel_permissions(
+            &state.db,
+            text_channel_id,
+            user_id,
+        )
+        .await
+        .unwrap();
+        assert!(
+            channel_perms.is_empty(),
+            "{label} user must not keep channel permissions: {channel_perms:?}"
+        );
+        assert!(
+            !voxpery_server::ws::access::can_subscribe_to_channel(&state.db, user_id, text_channel_id)
+                .await
+                .unwrap(),
+            "{label} user must not subscribe to the channel"
+        );
+        assert!(
+            !voxpery_server::ws::access::can_join_voice_channel(&state.db, user_id, voice_channel_id)
+                .await
+                .unwrap(),
+            "{label} user must not join voice"
+        );
+        let (status, _) = api_json(
+            &mut app,
+            "GET",
+            &format!("/api/servers/{server_id}/channels/{text_channel_id}/members"),
+            auth,
+            None,
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::FORBIDDEN,
+            "{label} user must not list channel members"
+        );
+    }
+
+    // A new connection from a removed user cannot subscribe either.
+    let mut banned_ws = connect_ws(addr, &banned_auth).await;
+    ws_subscribe(&mut banned_ws, &[text_channel_id]).await;
+
+    let marker = format!("after removal {}", Uuid::new_v4());
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{text_channel_id}"),
+        &owner_auth,
+        Some(json!({ "content": marker })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "owner message failed: {body}");
+    let delivered = receive_ws_event(&mut owner_ws, "NewMessage").await;
+    assert!(delivered.to_string().contains(&marker));
+    let quiet = std::time::Duration::from_millis(800);
+    assert_no_ws_event_mentioning(&mut leaver_ws, "NewMessage", &marker, quiet).await;
+    assert_no_ws_event_mentioning(&mut banned_ws, "NewMessage", &marker, quiet).await;
+}
+
+#[tokio::test]
+async fn only_the_owner_manages_roles_and_permission_overrides() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Delegation Guild")
+            .await;
+    let (manager_auth, manager_id, _) = register_named_user(&mut app, "manager").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
+    join_with_invite(&mut app, &manager_auth, &invite_code).await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    // The manager can manage roles and channels, but not the server or messages.
+    let manager_role_id = grant_role_with_permissions(
+        &state,
+        server_id,
+        manager_id,
+        "Manager",
+        0,
+        PERM_VIEW | PERM_SEND | PERM_MANAGE_ROLES | PERM_MANAGE_CHANNELS,
+    )
+    .await;
+
+    let (status, member_message) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/messages/{text_channel_id}"),
+        &member_auth,
+        Some(json!({ "content": "member message" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "member message failed: {member_message}");
+    let member_message_id = member_message["id"].as_str().unwrap().to_string();
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{member_message_id}"),
+        &manager_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager cannot delete others' messages yet");
+
+    // Role creation, ordering and assignment are owner-only.
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &manager_auth,
+        Some(json!({ "name": "Escalated", "permissions": PERM_MANAGE_SERVER, "color": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager created a role: {body}");
+    let role_ids: Vec<String> = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM server_roles WHERE server_id = $1 AND LOWER(name) <> 'everyone' ORDER BY position",
+    )
+    .bind(server_id)
+    .fetch_all(&state.db)
+    .await
+    .unwrap()
+    .into_iter()
+    .rev()
+    .map(|id| id.to_string())
+    .collect();
+    let (status, body) = api_json(
+        &mut app,
+        "PATCH",
+        &format!("/api/servers/{server_id}/roles/reorder"),
+        &manager_auth,
+        Some(json!({ "role_ids": role_ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager reordered roles: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/servers/{server_id}/members/{member_id}/roles"),
+        &manager_auth,
+        Some(json!({ "role_ids": [manager_role_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager assigned a role: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/servers/{server_id}/members/{manager_id}/roles"),
+        &manager_auth,
+        Some(json!({ "role_ids": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager changed their own roles: {body}");
+
+    // Channel and category permission overrides are owner-only, including for one's own role.
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{text_channel_id}/overrides/{manager_role_id}"),
+        &manager_auth,
+        Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager edited a channel override: {body}");
+    let (status, _) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{member_message_id}"),
+        &manager_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager gained message moderation");
+    let (status, body) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/channels/server/{server_id}/categories"),
+        &owner_auth,
+        Some(json!({ "name": "Secure" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "category create failed: {body}");
+    let category_path = body["name"].as_str().unwrap_or("Secure").to_string();
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/server/{server_id}/categories/{category_path}/overrides/{manager_role_id}"),
+        &manager_auth,
+        Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager edited a category override: {body}");
+    put_channel_override_row(&state, text_channel_id, manager_role_id, 0, 0).await;
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/channels/{text_channel_id}/overrides/{manager_role_id}"),
+        &manager_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "manager deleted a channel override: {body}");
+
+    // The owner keeps every management path.
+    let (status, created) = api_json(
+        &mut app,
+        "POST",
+        &format!("/api/servers/{server_id}/roles"),
+        &owner_auth,
+        Some(json!({ "name": "Message moderators", "permissions": PERM_VIEW | PERM_SEND | PERM_MANAGE_MESSAGES, "color": null })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "owner role create failed: {created}");
+    let moderator_role_id = created["id"].as_str().unwrap().to_string();
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/servers/{server_id}/members/{manager_id}/roles"),
+        &owner_auth,
+        Some(json!({ "role_ids": [manager_role_id, moderator_role_id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "owner role assignment failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{text_channel_id}/overrides/{manager_role_id}"),
+        &owner_auth,
+        Some(json!({ "allow": PERM_MANAGE_MESSAGES, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "owner channel override failed: {body}");
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/server/{server_id}/categories/{category_path}/overrides/{manager_role_id}"),
+        &owner_auth,
+        Some(json!({ "allow": PERM_SEND, "deny": 0 })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "owner category override failed: {body}");
+
+    // Moderators keep the daily powers they were given.
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/messages/item/{member_message_id}"),
+        &manager_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "moderator delete failed: {body}");
+}
+
+#[tokio::test]
+async fn channel_overrides_only_carry_channel_scoped_permissions() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Scope Guild")
+            .await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+    let everyone_id = everyone_role_id(&state, server_id).await;
+
+    for server_scoped in [PERM_MANAGE_SERVER, PERM_MANAGE_ROLES, PERM_KICK, PERM_BAN] {
+        let (status, body) = api_json(
+            &mut app,
+            "PUT",
+            &format!("/api/channels/{text_channel_id}/overrides/{everyone_id}"),
+            &owner_auth,
+            Some(json!({ "allow": PERM_VIEW | server_scoped, "deny": 0 })),
+        )
+        .await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "server-scoped bit {server_scoped} accepted in a channel override: {body}"
+        );
+    }
+
+    // Rows written before this rule existed must not grant server-scoped permissions either.
+    put_channel_override_row(
+        &state,
+        text_channel_id,
+        everyone_id,
+        PERM_VIEW | PERM_SEND | PERM_MANAGE_ROLES | PERM_KICK | PERM_BAN,
+        0,
+    )
+    .await;
+    let perms = voxpery_server::services::permissions::get_user_channel_permissions(
+        &state.db,
+        text_channel_id,
+        member_id,
+    )
+    .await
+    .unwrap();
+    assert!(perms.bits() & PERM_VIEW != 0, "channel-scoped allow still applies");
+    assert_eq!(
+        perms.bits() & (PERM_MANAGE_ROLES | PERM_KICK | PERM_BAN),
+        0,
+        "server-scoped bits from an override must be ignored: {perms:?}"
+    );
+}
+
+#[tokio::test]
+async fn google_link_keeps_passwords_only_for_verified_local_accounts() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+
+    let login = |identifier: String, password: &'static str| {
+        Request::builder()
+            .method("POST")
+            .uri("/api/auth/login")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&json!({ "identifier": identifier, "password": password }))
+                    .unwrap(),
+            ))
+            .unwrap()
+    };
+
+    // Someone registered this address first but never proved they own it.
+    let (_, unverified_id, unverified_password) =
+        register_named_user(&mut app, "unverified").await;
+    let unverified_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(unverified_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET email_verified = FALSE WHERE id = $1")
+        .bind(unverified_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    voxpery_server::services::auth::link_google_identity(
+        &state.db,
+        unverified_id,
+        &format!("google-{}", Uuid::new_v4()),
+    )
+    .await
+    .unwrap();
+    let (status, _) = oneshot(&mut app, login(unverified_email, unverified_password)).await;
+    assert_eq!(
+        status,
+        StatusCode::UNAUTHORIZED,
+        "an unproven local password must not survive the Google link"
+    );
+    let (verified_flag, has_google): (bool, bool) = sqlx::query_as(
+        "SELECT email_verified, google_id IS NOT NULL FROM users WHERE id = $1",
+    )
+    .bind(unverified_id)
+    .fetch_one(&state.db)
+    .await
+    .unwrap();
+    assert!(verified_flag && has_google);
+
+    // A local account whose email was already verified keeps its password.
+    let (_, verified_id, verified_password) = register_named_user(&mut app, "verified").await;
+    let verified_email: String = sqlx::query_scalar("SELECT email FROM users WHERE id = $1")
+        .bind(verified_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET email_verified = TRUE WHERE id = $1")
+        .bind(verified_id)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    voxpery_server::services::auth::link_google_identity(
+        &state.db,
+        verified_id,
+        &format!("google-{}", Uuid::new_v4()),
+    )
+    .await
+    .unwrap();
+    let (status, _) = oneshot(&mut app, login(verified_email, verified_password)).await;
+    assert_eq!(status, StatusCode::OK, "verified owners keep password login");
+}
+
+#[tokio::test]
+async fn livekit_rejoin_and_permission_changes_remove_unauthorized_participants() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    // LiveKit stand-in: reports `room_participants` and records removals.
+    let room_participants = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let removed = Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
+    let list_participants = room_participants.clone();
+    let record_removed = removed.clone();
+    let livekit_app = axum::Router::new()
+        .route(
+            "/twirp/livekit.RoomService/ListParticipants",
+            axum::routing::post(move || {
+                let list_participants = list_participants.clone();
+                async move {
+                    let identities = list_participants.lock().await.clone();
+                    axum::Json(json!({
+                        "participants": identities
+                            .iter()
+                            .map(|identity| json!({ "identity": identity, "sid": format!("PA_{identity}") }))
+                            .collect::<Vec<_>>()
+                    }))
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/RemoveParticipant",
+            axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+                let record_removed = record_removed.clone();
+                async move {
+                    record_removed
+                        .lock()
+                        .await
+                        .push(body["identity"].as_str().unwrap_or_default().to_string());
+                    axum::Json(json!({}))
+                }
+            }),
+        )
+        .route(
+            "/twirp/livekit.RoomService/UpdateParticipant",
+            axum::routing::post(|axum::Json(body): axum::Json<serde_json::Value>| async move {
+                axum::Json(json!({ "sid": "PA_updated", "identity": body["identity"] }))
+            }),
+        );
+    let livekit_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let livekit_addr = livekit_listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        let _ = axum::serve(livekit_listener, livekit_app).await;
+    });
+    let (mut app, state) = setup_app_with_features_and_livekit(
+        false,
+        false,
+        false,
+        false,
+        "wss://livekit.test.local".to_string(),
+        Some(format!("http://{livekit_addr}")),
+    )
+    .await;
+
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, _, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Voice Guild")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let (kicked_auth, kicked_id, _) = register_named_user(&mut app, "kicked").await;
+    let (member_auth, member_id, _) = register_named_user(&mut app, "member").await;
+    join_with_invite(&mut app, &kicked_auth, &invite_code).await;
+    join_with_invite(&mut app, &member_auth, &invite_code).await;
+
+    // A token minted while still a member, used after removal (no JoinVoice on the WebSocket).
+    voice_token_grant(&mut app, &kicked_auth, voice_channel_id).await;
+    let (status, body) = api_json(
+        &mut app,
+        "DELETE",
+        &format!("/api/servers/{server_id}/members/{kicked_id}"),
+        &owner_auth,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "kick failed: {body}");
+    removed.lock().await.clear();
+    let joined = json!({
+        "event": "participant_joined",
+        "room": { "name": voice_channel_id.to_string() },
+        "participant": { "identity": kicked_id.to_string(), "sid": "PA_stale" },
+    })
+    .to_string();
+    let signature = signed_livekit_webhook(&state, joined.as_bytes());
+    let request = Request::builder()
+        .method("POST")
+        .uri("/api/webrtc/livekit-webhook")
+        .header("Authorization", signature)
+        .header("content-type", "application/webhook+json")
+        .body(Body::from(joined))
+        .unwrap();
+    let (status, body) = oneshot(&mut app, request).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        removed.lock().await.as_slice(),
+        [kicked_id.to_string()],
+        "a removed member joining with an old token must be disconnected"
+    );
+
+    // A member connected directly to LiveKit loses voice access through a permission change.
+    room_participants.lock().await.push(member_id.to_string());
+    removed.lock().await.clear();
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    let (status, body) = api_json(
+        &mut app,
+        "PUT",
+        &format!("/api/channels/{voice_channel_id}/overrides/{everyone_id}"),
+        &owner_auth,
+        Some(json!({ "allow": 0, "deny": PERM_CONNECT_VOICE })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "override failed: {body}");
+    assert!(
+        removed.lock().await.contains(&member_id.to_string()),
+        "participants in the LiveKit room must be rechecked, not only reported sessions"
+    );
+}
+
+#[tokio::test]
+async fn hidden_voice_channel_activity_is_not_broadcast_to_members_who_cannot_view_it() {
+    let Some(_) = test_db_url() else {
+        eprintln!("SKIP: DATABASE_URL not set");
+        return;
+    };
+    let (mut app, state) = setup_app().await;
+    let (owner_auth, _, _) = register_named_user(&mut app, "owner").await;
+    let (server_id, text_channel_id, invite_code) =
+        create_server_with_default_text_channel(&mut app, &state, &owner_auth, "Hidden Voice")
+            .await;
+    let voice_channel_id = voice_channel_of(&state, server_id).await;
+    let (outsider_auth, _, _) = register_named_user(&mut app, "outsider").await;
+    let (insider_auth, insider_id, _) = register_named_user(&mut app, "insider").await;
+    join_with_invite(&mut app, &outsider_auth, &invite_code).await;
+    join_with_invite(&mut app, &insider_auth, &invite_code).await;
+    let everyone_id = everyone_role_id(&state, server_id).await;
+    put_channel_override_row(&state, voice_channel_id, everyone_id, 0, PERM_VIEW).await;
+    let insider_role_id = grant_role_with_permissions(
+        &state,
+        server_id,
+        insider_id,
+        "Voice insiders",
+        0,
+        PERM_VIEW | PERM_SEND | PERM_CONNECT_VOICE,
+    )
+    .await;
+    put_channel_override_row(&state, voice_channel_id, insider_role_id, PERM_VIEW, 0).await;
+
+    let addr = spawn_ws_app(&state).await;
+    let mut owner_ws = connect_ws(addr, &owner_auth).await;
+    ws_subscribe(&mut owner_ws, &[text_channel_id, voice_channel_id]).await;
+    let mut outsider_ws = connect_ws(addr, &outsider_auth).await;
+    // Subscribing to the hidden channel is refused; the text channel is visible.
+    ws_subscribe(&mut outsider_ws, &[text_channel_id, voice_channel_id]).await;
+    let mut insider_ws = connect_ws(addr, &insider_auth).await;
+    ws_subscribe(&mut insider_ws, &[text_channel_id, voice_channel_id]).await;
+
+    ws_send(
+        &mut insider_ws,
+        json!({ "type": "JoinVoice", "data": { "channel_id": voice_channel_id } }),
+    )
+    .await;
+    let joined = receive_ws_event(&mut owner_ws, "VoiceStateUpdate").await;
+    assert_eq!(joined["data"]["user_id"], insider_id.to_string());
+    let marker = insider_id.to_string();
+    let quiet = std::time::Duration::from_millis(800);
+    assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
+    assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceControlUpdate", &marker, quiet).await;
+
+    ws_send(&mut insider_ws, json!({ "type": "LeaveVoice" })).await;
+    let left = receive_ws_event(&mut owner_ws, "VoiceStateUpdate").await;
+    assert!(left["data"]["channel_id"].is_null());
+    assert_no_ws_event_mentioning(&mut outsider_ws, "VoiceStateUpdate", &marker, quiet).await;
+}

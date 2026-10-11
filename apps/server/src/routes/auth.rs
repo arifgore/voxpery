@@ -69,11 +69,6 @@ fn auth_cookie_header(state: &AppState, token: &str) -> HeaderMap {
 
 const DESKTOP_OAUTH_ORIGIN: &str = "voxpery://auth";
 const DESKTOP_OAUTH_CODE_TTL_SECS: u64 = 90;
-const LINK_GOOGLE_IDENTITY_SQL: &str = "UPDATE users
-     SET google_id = $1,
-         email_verified = TRUE,
-         token_version = token_version + 1
-     WHERE id = $2";
 static DUMMY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
     let dummy_password = Uuid::new_v4().to_string();
     hash_password(&dummy_password).expect("dummy Argon2 hash should be generated successfully")
@@ -497,8 +492,10 @@ mod oauth_pkce_tests {
     }
 
     #[test]
-    fn linking_google_identity_never_replaces_an_existing_local_password() {
-        assert!(!super::LINK_GOOGLE_IDENTITY_SQL.contains("password_hash"));
+    fn linking_google_identity_keeps_only_verified_local_passwords() {
+        let sql = crate::services::auth::LINK_GOOGLE_IDENTITY_SQL;
+        assert!(sql.contains("password_hash = CASE WHEN email_verified THEN password_hash ELSE 'oauth' END"));
+        assert!(sql.contains("token_version = token_version + 1"));
     }
 
     #[test]
@@ -2186,14 +2183,14 @@ async fn google_oauth_callback(
     let user = match user {
         Ok(Some(mut u)) => {
             if u.google_id.is_none() {
-                if let Err(error) = sqlx::query(LINK_GOOGLE_IDENTITY_SQL)
-                    .bind(&google_id)
-                    .bind(u.id)
-                    .execute(&state.db)
-                    .await
+                if let Err(error) =
+                    crate::services::auth::link_google_identity(&state.db, u.id, &google_id).await
                 {
                     tracing::warn!("Google OAuth account link failed: {}", error);
                     return failure("oauth_failed");
+                }
+                if !u.email_verified {
+                    u.password_hash = "oauth".to_string();
                 }
                 u.google_id = Some(google_id.clone());
                 u.email_verified = true;

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- Security updates.
+
 ### Changed
 - Server icons now open in the same crop and zoom editor as profile photos. Choosing an image no longer changes the icon; it is saved only with Save photo, and Cancel keeps the current icon.
 

@@ -1914,6 +1914,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     }
 
     const activeServer = servers.find((s) => s.id === activeServerId)
+    // Roles and permission overrides are managed by the server owner only.
+    const isActiveServerOwner = !!(activeServer && user && activeServer.owner_id === user.id)
     const hasResolvedActiveChannel = !!activeChannelId && channels.some((c) => c.id === activeChannelId)
     const serverRouteLoading = isLoggedIn && (
         !serverListReady
@@ -3299,7 +3301,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 inviteLink={activeServerInviteLink || undefined}
                 onOpenCreateChannel={openCreateChannelModal}
                 onOpenCreateCategory={openCreateCategoryModal}
-                onOpenCategoryPermissions={(category) => setCategoryPermissionsTarget(category)}
+                onOpenCategoryPermissions={isActiveServerOwner ? (category) => setCategoryPermissionsTarget(category) : undefined}
                 onRenameCategory={openRenameCategoryModal}
                 onDeleteCategory={(category) => {
                     setDeleteCategoryError(null)
@@ -3408,7 +3410,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                 canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                 canBanMembers={canBanMembers}
                 canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
-                canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                 onReportMember={openUserReport}
                 collapsed={!isMobileViewport && !memberPanelOpen}
             />
@@ -3445,7 +3446,6 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                             canKickMembers={(activePerms & PERM_KICK_MEMBERS) === PERM_KICK_MEMBERS}
                             canBanMembers={canBanMembers}
                             canTimeoutMembers={(activePerms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES}
-                            canManageRolesFromPerms={(activePerms & PERM_MANAGE_ROLES) === PERM_MANAGE_ROLES}
                             onReportMember={openUserReport}
                             variant="sheet"
                         />
@@ -4418,6 +4418,7 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                         <ChannelSettingsModal
                             channel={channelSettingsTarget}
                             serverRoles={serverRoles}
+                            canManagePermissions={isActiveServerOwner}
                             onClose={() => setChannelSettingsTarget(null)}
                             onUpdated={async (updated: Channel) => {
                                 setChannels(channels.map(c => c.id === updated.id ? updated : c))
