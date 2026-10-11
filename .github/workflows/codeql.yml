@@ -1,7 +1,16 @@
 name: Security / CodeQL
 
+# Pull requests run the fast JavaScript/TypeScript and Actions analyses. Rust analysis of the
+# server and desktop crates takes about 15 minutes, so it runs after merges to main and weekly.
 on:
   pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '.github/scripts/**'
+  push:
     branches: [main]
     paths:
       - 'apps/server/**'
@@ -55,12 +64,12 @@ jobs:
           merge_base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
           git diff --name-only -z "$merge_base" "$HEAD_SHA" > "$RUNNER_TEMP/codeql-changed-files"
 
+          # Rust is analyzed on main and weekly; see the trigger comment above.
           rust=false
           javascript=false
           actions=false
           while IFS= read -r -d '' path; do
             case "$path" in
-              apps/server/*|apps/desktop/src-tauri/*) rust=true ;;
               apps/web/*|.github/scripts/*) javascript=true ;;
               .github/workflows/*|.github/actions/*) actions=true ;;
             esac
