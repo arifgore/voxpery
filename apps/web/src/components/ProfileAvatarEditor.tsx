@@ -14,9 +14,11 @@ type ProfileAvatarEditorProps = {
   onSave: (dataUrl: string) => Promise<boolean>
   /** Lets the settings dialog save the photo when the user tries to leave with unsaved edits. */
   saveRef?: MutableRefObject<(() => Promise<boolean>) | null>
+  /** Preview mask matching where the image is shown: round avatars or rounded-square server icons. */
+  shape?: 'circle' | 'rounded-square'
 }
 
-export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, onSave, saveRef }: ProfileAvatarEditorProps) {
+export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, onSave, saveRef, shape = 'circle' }: ProfileAvatarEditorProps) {
   const [sourceUrl, setSourceUrl] = useState<string | null>(null)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [previewSize, setPreviewSize] = useState(AVATAR_CROP_PREVIEW_SIZE)
@@ -113,7 +115,7 @@ export default function ProfileAvatarEditor({ file, onChooseAnother, onCancel, o
   })
 
   return (
-    <div className="profile-avatar-editor">
+    <div className={`profile-avatar-editor${shape === 'rounded-square' ? ' profile-avatar-editor--rounded-square' : ''}`}>
       <div className="profile-avatar-editor__stage" ref={stageRef} tabIndex={0} role="group"
         aria-label="Move photo crop with arrow keys" onKeyDown={onKeyDown}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove}

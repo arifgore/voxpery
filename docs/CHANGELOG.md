@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Server icons now open in the same crop and zoom editor as profile photos. Choosing an image no longer changes the icon; it is saved only with Save photo, and Cancel keeps the current icon.
+
 ### Fixed
 - Windows: the Voxpery icon is no longer cropped at small sizes, such as in Settings > Installed apps.
+- Returning to a server channel you left while reading older history now opens where you left off, as direct messages already did. This also works when older messages were still loading as you left.
+- In direct messages, @ suggestions list the people in the conversation instead of @all.
+- Leaving a voice channel while it is still connecting now cancels the join instead of waiting for the connection.
 
 ## [0.4.0] - 2026-10-10
 

@@ -407,6 +407,16 @@ describe('ActiveCallBar regressions', () => {
     expect(voice.setVoiceControls).not.toHaveBeenCalled()
   })
 
+  it('cancels a voice join that is still connecting when leave is pressed', async () => {
+    const { voice } = renderActiveCallBar({ joinedChannelId: null, localStream: null, isJoining: true })
+    const leave = screen.getByRole('button', { name: 'Leave voice channel' })
+    expect(leave).toBeEnabled()
+    await act(async () => { fireEvent.click(leave) })
+    expect(voice.leaveVoice).toHaveBeenCalledOnce()
+    expect(voice.joinVoice).not.toHaveBeenCalled()
+    expect(useToastStore.getState().toasts).toEqual([])
+  })
+
   afterEach(() => {
     restoreAudioContextMock?.()
     restoreAudioContextMock = null

@@ -1055,10 +1055,11 @@ export default function ChatArea({
         const filtered = query.length === 0
             ? mentionCandidates
             : mentionCandidates.filter((member) => member.username.toLowerCase().includes(query))
-        const showAll = query.length === 0 || 'all'.startsWith(query)
+        // @all notifies a server channel; a direct message only has its two participants.
+        const showAll = !isDm && (query.length === 0 || 'all'.startsWith(query))
         const withAll = showAll ? [MENTION_ALL, ...filtered] : filtered
         return withAll.slice(0, 9)
-    }, [mentionCandidates, mentionOpen, mentionQuery])
+    }, [isDm, mentionCandidates, mentionOpen, mentionQuery])
 
     const normalizedUnreadDividerCount = Number.isFinite(unreadDividerCount)
         ? Math.max(0, Math.trunc(unreadDividerCount))
@@ -1442,6 +1443,12 @@ export default function ChatArea({
             setShowJumpToLatest(false)
             return
         }
+        // While a saved reading position is being restored the list can briefly sit at the
+        // bottom (for example before the channel's messages render); that is not a return to latest.
+        if (activeChannel?.id && pendingReadingRestoreRef.current?.channelId === activeChannel.id) {
+            shouldAutoScrollRef.current = false
+            return
+        }
         if (preservingOlderMessagesRef.current) {
             shouldAutoScrollRef.current = false
             syncJumpToLatestVisibility()
@@ -1464,6 +1471,15 @@ export default function ChatArea({
         if (!shouldAutoScrollRef.current) syncJumpToLatestVisibility()
         else setShowJumpToLatest(false)
     }, [activeChannel?.id, isAtBottom, syncJumpToLatestVisibility])
+
+    const rememberReadingPosition = useCallback((el: HTMLDivElement) => {
+        const positionKey = readingPositionKey(activeChannel?.id)
+        if (!positionKey || pendingReadingRestoreRef.current) return
+        if (isAtBottom(el)) readingPositions.delete(positionKey)
+        else if (userReadingHistoryRef.current && reactionHistoryAnchorRef.current) {
+            readingPositions.set(positionKey, reactionHistoryAnchorRef.current)
+        }
+    }, [activeChannel?.id, isAtBottom, readingPositionKey])
 
     const handleMessagesScroll = useCallback(() => {
         const el = messagesScrollRef.current
@@ -1491,17 +1507,11 @@ export default function ChatArea({
             if (userReadingHistoryRef.current && !preservingOlderMessagesRef.current) {
                 reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
             }
-            const positionKey = readingPositionKey(activeChannel?.id)
-            if (positionKey && !pendingReadingRestoreRef.current) {
-                if (isAtBottom(el)) readingPositions.delete(positionKey)
-                else if (userReadingHistoryRef.current && reactionHistoryAnchorRef.current) {
-                    readingPositions.set(positionKey, reactionHistoryAnchorRef.current)
-                }
-            }
+            rememberReadingPosition(el)
             lastKnownScrollTopRef.current = currentScrollTop
         }
         syncAutoScrollState()
-    }, [activeChannel?.id, isAtBottom, markUserReadingHistory, readingPositionKey, startOlderMessagesLoad, syncAutoScrollState])
+    }, [activeChannel?.id, markUserReadingHistory, rememberReadingPosition, startOlderMessagesLoad, syncAutoScrollState])
 
     const handleWheelScrollIntent = useCallback((event: WheelEvent<HTMLDivElement>) => {
         noteUserScrollIntent()
@@ -1740,11 +1750,17 @@ export default function ChatArea({
                 if (!loadingOlder) {
                     preservingOlderMessagesRef.current = false
                     olderMessagesAnchorRef.current = null
+                    // Scroll events during the load skip the reading position; record it now.
+                    const el = messagesScrollRef.current
+                    if (el && userReadingHistoryRef.current) {
+                        reactionHistoryAnchorRef.current = captureVisibleMessageAnchor(el)
+                        rememberReadingPosition(el)
+                    }
                 }
             })
         })
         return () => cancelAnimationFrame(frameId)
-    }, [loadingOlder, messages.length, restoreOlderMessagesAnchor])
+    }, [loadingOlder, messages.length, rememberReadingPosition, restoreOlderMessagesAnchor])
 
     useEffect(() => {
         if (loadingOlder) return
@@ -2340,6 +2356,7 @@ export default function ChatArea({
         const rendered = parts.map((part, idx) => {
             if (!part) return null
             if (part === '@all') {
+                if (isDm) return <span key={idx}>{part}</span>
                 return <span key={idx} className="mention-pill mention-pill-all">{part}</span>
             }
             if (part === '@everyone') {

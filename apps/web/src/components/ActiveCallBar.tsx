@@ -1239,7 +1239,13 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
   const handleJoinLeave = async () => {
     if (!selectedVoiceChannelId && !state.joinedChannelId) return
     if (!selectedVoiceChannelId) return
-    if (isInThisChannel) {
+    if (state.isJoining || isInThisChannel) {
+      // Leaving while the join is still connecting cancels it: leaveVoice() invalidates the
+      // pending connection, and the new generation keeps this attempt from reporting an error.
+      if (state.isJoining) {
+        joinGenerationRef.current++
+        setPreflightPending(false)
+      }
       micTestAutoDeafenedRef.current = false
       leaveVoice()
       setBlockedAutoJoinChannelId(selectedVoiceChannelId)
@@ -1944,7 +1950,7 @@ export default function ActiveCallBar({ selectedVoiceChannelId, activeChannelId 
                     <span className="callbar-ping-value">{pingDisplay}</span>
                   </span>
                 </span>
-                <button onClick={handleJoinLeave} disabled={state.isJoining} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} aria-label={disconnectControlLabel} title={disconnectControlLabel}>
+                <button onClick={handleJoinLeave} className={`callbar-control-btn callbar-control-btn-disconnect danger ${isDisconnectVisualActive ? 'is-live is-disconnect-state' : ''} ${isDisconnectPendingVisual ? 'is-disconnect-pending' : ''}`} aria-label={disconnectControlLabel} title={disconnectControlLabel}>
                   <PhoneOff size={16} style={{ transform: isDisconnectVisualActive ? 'none' : 'rotate(135deg)' }} />
                 </button>
               </div>
