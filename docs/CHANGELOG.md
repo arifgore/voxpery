@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Returning to a server channel you left while reading older history now opens where you left off, as direct messages already did. This also works when older messages were still loading as you left.
 - In direct messages, @ suggestions list the people in the conversation instead of @all.
 - Leaving a voice channel while it is still connecting now cancels the join instead of waiting for the connection.
+- Linux desktop: typing in the message box and other text fields works again. After the window was shown or reactivated, keyboard input could stay outside the page while clicks still worked.
 
 ## [0.4.0] - 2026-10-10
 
