@@ -193,6 +193,34 @@ test.describe('mocked release and settings regressions', () => {
     await page.screenshot({ path: testInfo.outputPath('desktop-sign-in-strip.png'), clip: { x: 0, y: 0, width: 1366, height: 120 } })
   })
 
+  test('widens the voice stage into the space of a hidden member list', { tag: '@core' }, async ({ page }) => {
+    const server = buildCoreServer()
+    await installMockCoreApi(page, createMockCoreState({
+      servers: [server],
+      channelsByServerId: { [server.id]: buildCoreChannels(server.id) },
+      membersByServerId: { [server.id]: buildCoreMembers() },
+    }))
+    await page.setViewportSize({ width: 1366, height: 768 })
+    await page.goto('/servers')
+    // The stage is positioned by the page layout alone, so an empty stage element measures it.
+    await page.evaluate(() => {
+      const stage = document.createElement('div')
+      stage.className = 'screen-share-stage'
+      document.body.appendChild(stage)
+    })
+    const stageRight = () => page.locator('.screen-share-stage').evaluate(element => Math.round(element.getBoundingClientRect().right))
+    const memberListWidth = await page.locator('.member-sidebar').evaluate(element => Math.round(element.getBoundingClientRect().width))
+    expect(await stageRight()).toBe(1366 - memberListWidth - 14)
+
+    await page.getByRole('button', { name: 'Hide member list' }).first().click()
+    await expect(page.locator('.member-sidebar')).toBeHidden()
+    expect(await stageRight()).toBe(1366 - 14)
+
+    await page.getByRole('button', { name: 'Show member list' }).first().click()
+    await expect(page.locator('.member-sidebar')).toBeVisible()
+    expect(await stageRight()).toBe(1366 - memberListWidth - 14)
+  })
+
   test('groups Quick Search and preserves keyboard navigation, filtering and focus', async ({ page }, testInfo) => {
     const server = buildCoreServer()
     await installMockCoreApi(page, createMockCoreState({

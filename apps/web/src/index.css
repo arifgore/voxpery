@@ -11086,6 +11086,13 @@ button.message-author {
   pointer-events: auto;
 }
 
+/* With the member list hidden, the voice stage uses the freed space like the chat does. */
+@media (min-width: 1024px) {
+  body:has(.member-sidebar--collapsed) .screen-share-stage {
+    right: var(--voice-stage-gap);
+  }
+}
+
 .screen-share-stage[data-stage-density="crowded"] {
   gap: 10px;
 }

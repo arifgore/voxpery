@@ -1,4 +1,6 @@
 # Build desktop app (Tauri 2) and attach artifacts to a GitHub Release.
+# Linux ships a .deb, an .rpm and a .flatpak bundle (built from the .deb, see
+# apps/desktop/src-tauri/linux/flatpak).
 # Trigger: push a tag v* (all platforms) or run manually (workflow_dispatch).
 # Manual run: choose "Single platform" to build only one OS (~8-10 min instead of ~20).
 # Set repo secret VITE_API_URL and repository variables VITE_TURNSTILE_SITE_KEY
@@ -175,3 +177,93 @@ jobs:
 
       - name: Validate desktop artifacts
         run: node .github/scripts/validate-desktop-artifacts.mjs
+
+      - name: Keep the Linux .deb for the Flatpak bundle
+        if: matrix.platform == 'ubuntu-24.04'
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-deb
+          path: apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+          retention-days: 3
+
+  flatpak:
+    name: Linux Flatpak bundle
+    needs: build-desktop
+    if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      # flatpak-builder needs to create its own sandboxes inside the container.
+      options: --privileged
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download the Linux .deb
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-deb
+          path: deb
+
+      - name: Read the release version
+        id: version
+        shell: bash
+        run: |
+          deb="$(ls deb/*.deb)"
+          version="$(basename "$deb" | sed -n 's/^Voxpery_\(.*\)_amd64\.deb$/\1/p')"
+          if [ -z "$version" ]; then
+            echo "::error::Unexpected .deb name: $deb"
+            exit 1
+          fi
+          if [ "${GITHUB_REF_TYPE}" = "tag" ] && [ "${GITHUB_REF_NAME}" != "v$version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match the built version $version"
+            exit 1
+          fi
+          echo "deb=$deb" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Build the Flatpak bundle
+        shell: bash
+        env:
+          DEB: ${{ steps.version.outputs.deb }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sh apps/desktop/src-tauri/linux/flatpak/prepare-build-dir.sh "$DEB" "$VERSION" "$(date -u +%F)" flatpak-src
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --repo=repo --force-clean --disable-rofiles-fuse \
+            build flatpak-src/com.voxpery.Voxpery.yml
+          flatpak build-bundle repo "Voxpery_${VERSION}_x86_64.flatpak" com.voxpery.Voxpery \
+            --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          # The bundle must carry the release version in its metadata as well as its name.
+          grep -q "version=\"$VERSION\"" build/files/share/metainfo/com.voxpery.Voxpery.metainfo.xml
+
+      - name: Keep the Flatpak bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-flatpak
+          path: Voxpery_${{ steps.version.outputs.version }}_x86_64.flatpak
+          if-no-files-found: error
+          retention-days: 3
+
+  publish-flatpak:
+    name: Attach the Flatpak bundle to the release
+    needs: flatpak
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the Flatpak bundle
+        uses: actions/download-artifact@v8
+        with:
+          name: linux-flatpak
+
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          file="$(ls Voxpery_*_x86_64.flatpak)"
+          version="$(echo "$file" | sed -n 's/^Voxpery_\(.*\)_x86_64\.flatpak$/\1/p')"
+          # tauri-action created this (draft) release while building the .deb and .rpm.
+          gh release upload "v$version" "$file" --clobber --repo "$GITHUB_REPOSITORY"

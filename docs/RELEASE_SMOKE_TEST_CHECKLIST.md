@@ -26,13 +26,21 @@ For releases that touch voice, WebRTC, LiveKit, service workers, build output, o
 
 ## Release Candidate Info
 
-### v0.4.2 preparation (not release sign-off)
+### v0.4.3 preparation (not release sign-off)
 
-Version metadata is prepared for `0.4.2`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
+Version metadata is prepared for `0.4.3`; this does not certify release readiness. Complete remaining planned improvements before recording the final candidate commit. Rebuild that exact commit in WSL with Docker and isolated test data, then test the real backend and UI at 1920x1080 plus narrow desktop/mobile regressions. Mocked browser tests are supplementary, not a substitute for this check.
 
 Record real desktop smoke results, two-user voice/screen-share and moderation/reconnect checks, real-device mobile background-audio results, required CI/security/build results, and any platform limitations before publishing. Keep the upstream-blocked glib advisory (#242) explicitly documented rather than marking it fixed.
 
-For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.2` and `voxpery/voxpery-web:v0.4.2`, the embedded web badge/build tag, desktop version `0.4.2`, and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+For the final tag build, verify Docker images `voxpery/voxpery-server:v0.4.3` and `voxpery/voxpery-web:v0.4.3`, the embedded web badge/build tag, desktop version `0.4.3`, the `Voxpery_0.4.3_x86_64.flatpak` asset (name and bundled metainfo version), and the release-generated updater `latest.json` version all agree. Scan both images (Docker Hub or `docker scout`) and record any remaining critical or high findings with a reason. Do not publish a placeholder updater manifest or tag unvalidated images as a release. Leave sign-off fields unchecked until the final candidate is tested.
+
+### v0.4.3 checks
+
+- [ ] Desktop title bar (Windows, macOS, Linux): no system title bar; drag the header and the sign-in strip, double-click to maximize and restore, minimize/maximize/close; close follows "Keep running in tray on close"; Linux edge resizing on GNOME and KDE.
+- [ ] Quick Search is centered in the header on web and desktop; narrow windows and mobile show the search icon on the right.
+- [ ] Change and then remove a profile photo: the avatar next to that account's messages updates at once in a server channel and a DM, for another signed-in account too, and stays after switching channels.
+- [ ] Join a voice channel and hide the member list: the voice screen fills the freed space; showing the list restores the layout.
+- [ ] Linux Flatpak (clean system, Wayland and X11 separately): install `Voxpery_0.4.3_x86_64.flatpak`, start, sign in (including Google through `voxpery://`), restart and stay signed in, microphone, camera, screen sharing, notifications; update by installing the next version's file keeps the session and settings; CEF sandbox stays on.
 
 ### v0.4.2 checks
 
