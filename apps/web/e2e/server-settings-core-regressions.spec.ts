@@ -341,6 +341,67 @@ test.describe('mocked server settings UI regressions', () => {
     await page.getByRole('button', { name: 'Unban' }).click()
     await expect(page.getByText('Banned User', { exact: true })).toBeHidden()
   })
+
+  test('crops a new server icon in the editor and saves it only from Save photo', async ({ page }, testInfo) => {
+    const state = createServerSettingsState()
+    await installMockCoreApi(page, state)
+    await page.setViewportSize({ width: 1366, height: 900 })
+    await openServerSettings(page)
+    const settings = page.getByRole('dialog', { name: 'Server Settings', exact: true })
+    const profile = settings.locator('.server-overview-profile')
+    const source = await page.evaluate(() => {
+      const canvas = document.createElement('canvas')
+      canvas.width = 120
+      canvas.height = 80
+      const context = canvas.getContext('2d')!
+      context.fillStyle = '#e64040'
+      context.fillRect(0, 0, 60, 80)
+      context.fillStyle = '#347ae8'
+      context.fillRect(60, 0, 60, 80)
+      return canvas.toDataURL('image/png').split(',')[1]
+    })
+    const file = { name: 'icon.png', mimeType: 'image/png', buffer: Buffer.from(source, 'base64') }
+
+    // Choosing a photo opens the editor without changing the icon.
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    const editor = profile.locator('.profile-avatar-editor')
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await expect(profile.getByRole('button', { name: 'Upload image' })).toHaveCount(0)
+    await expect(profile.locator('.server-settings-icon-preview')).toHaveCount(0)
+    expect(state.serverUpdateCount).toBe(0)
+    await expect(settings).toHaveCSS('opacity', '1')
+    await page.screenshot({ path: testInfo.outputPath('server-icon-editor.png') })
+
+    // Cancel keeps the current icon.
+    await editor.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(editor).toHaveCount(0)
+    await expect(profile.getByRole('button', { name: 'Upload image' })).toBeVisible()
+    await expect(profile.locator('.server-settings-icon-preview')).toHaveCount(0)
+    expect(state.serverUpdateCount).toBe(0)
+
+    // Closing settings with an open editor asks before discarding the photo.
+    await profile.locator('input[type="file"]').setInputFiles(file)
+    await expect(editor.getByRole('button', { name: 'Save photo' })).toBeEnabled()
+    await settings.getByRole('button', { name: 'Close', exact: true }).click()
+    const confirm = page.getByRole('dialog', { name: 'Discard changes?', exact: true })
+    await confirm.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(editor).toBeVisible()
+
+    // Save photo stores the cropped square icon.
+    await editor.getByRole('button', { name: 'Save photo' }).click()
+    await expect(editor).toHaveCount(0)
+    expect(state.serverUpdateCount).toBe(1)
+    const iconUrl = state.servers[0].icon_url ?? ''
+    expect(iconUrl).toMatch(/^data:image\/(webp|png);base64,/)
+    await expect(profile.locator('.server-settings-icon-preview')).toBeVisible()
+    const size = await page.evaluate(async (url) => {
+      const image = new Image()
+      image.src = url
+      await image.decode()
+      return [image.naturalWidth, image.naturalHeight]
+    }, iconUrl)
+    expect(size).toEqual([512, 512])
+  })
 })
 
 async function readSettingsThemeSnapshot(modal: import('@playwright/test').Locator) {

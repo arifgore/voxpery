@@ -11,6 +11,7 @@ import ServerSidebar from '../components/ServerSidebar'
 import ChannelSidebar from '../components/ChannelSidebar'
 import ChannelSettingsModal from '../components/ChannelSettingsModal'
 import ModalSurface from '../components/ModalSurface'
+import ProfileAvatarEditor from '../components/ProfileAvatarEditor'
 import { useDialogFocus } from '../hooks/useDialogFocus'
 import CategoryPermissionsModal from '../components/CategoryPermissionsModal'
 import ChatArea from '../components/ChatArea'
@@ -390,6 +391,8 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
     const [serverSettingsName, setServerSettingsName] = useState('')
     const [serverSettingsDescription, setServerSettingsDescription] = useState('')
     const [serverSettingsIconDraft, setServerSettingsIconDraft] = useState<string | null | undefined>(undefined)
+    const [serverIconEditor, setServerIconEditor] = useState<{ file: File; key: number } | null>(null)
+    const serverIconEditorKeyRef = useRef(0)
     const [serverSettingsError, setServerSettingsError] = useState<string | null>(null)
     const [showDeleteServerConfirm, setShowDeleteServerConfirm] = useState(false)
     const [deleteServerInput, setDeleteServerInput] = useState('')
@@ -2618,20 +2621,21 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
         setServerSettingsName(settingsServer?.name ?? '')
         setServerSettingsDescription(settingsServer?.description ?? '')
         setServerSettingsIconDraft(undefined)
+        setServerIconEditor(null)
         setShowDeleteServerConfirm(false)
         setDeleteServerError(null)
         setDeleteServerInput('')
     }, [settingsServer?.name, settingsServer?.description])
 
     const handleCloseServerSettings = useCallback(() => {
-        if (canSaveServerSettings) {
+        if (canSaveServerSettings || serverIconEditor) {
             setShowUnsavedServerSettingsConfirm(true)
             return
         }
         actuallyCloseServerSettings()
-    }, [canSaveServerSettings, actuallyCloseServerSettings])
+    }, [canSaveServerSettings, serverIconEditor, actuallyCloseServerSettings])
 
-    const handleServerIconPick = async (files: FileList | null) => {
+    const handleServerIconPick = (files: FileList | null) => {
         if (!files || files.length === 0 || !settingsServer) return
         const file = files[0]
         if (!file.type.startsWith('image/')) {
@@ -2651,14 +2655,24 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
             })
             return
         }
-        const iconDataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve(String(reader.result))
-            reader.onerror = () => reject(reader.error)
-            reader.readAsDataURL(file)
-        })
-        setServerSettingsIconDraft(iconDataUrl)
+        // The icon changes only when the cropped photo is saved from the editor.
+        serverIconEditorKeyRef.current += 1
+        setServerIconEditor({ file, key: serverIconEditorKeyRef.current })
         setServerSettingsError(null)
+    }
+
+    const saveServerIcon = async (iconDataUrl: string): Promise<boolean> => {
+        if (!isLoggedIn || !settingsServer) return false
+        await serverApi.update(settingsServer.id, { icon_url: iconDataUrl }, token)
+        setServerIconEditor(null)
+        setServerSettingsIconDraft(undefined)
+        setServerSettingsError(null)
+        try {
+            await refreshServerList()
+        } catch {
+            // The icon is saved; the realtime server update refreshes the list as well.
+        }
+        return true
     }
 
     const handleClearServerIcon = () => {
@@ -3859,43 +3873,57 @@ export default function AppLayout({ skipServerSidebar = false, isViewActive, ser
                                                                 </div>
                                                                 {isOwner && (
                                                                     <div className="server-overview-profile__actions">
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-secondary btn-sm"
-                                                                            onClick={() => serverIconInputRef.current?.click()}
-                                                                        >
-                                                                            Upload image
-                                                                        </button>
-                                                                        {(effectiveServerIcon ?? null) && (
-                                                                            <button
-                                                                                type="button"
-                                                                                className="btn btn-secondary btn-sm"
-                                                                                onClick={handleClearServerIcon}
-                                                                            >
-                                                                                Remove
-                                                                            </button>
+                                                                        {!serverIconEditor && (
+                                                                            <>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-secondary btn-sm"
+                                                                                    onClick={() => serverIconInputRef.current?.click()}
+                                                                                >
+                                                                                    Upload image
+                                                                                </button>
+                                                                                {(effectiveServerIcon ?? null) && (
+                                                                                    <button
+                                                                                        type="button"
+                                                                                        className="btn btn-secondary btn-sm"
+                                                                                        onClick={handleClearServerIcon}
+                                                                                    >
+                                                                                        Remove
+                                                                                    </button>
+                                                                                )}
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="btn btn-primary btn-sm"
+                                                                                    disabled={!canSaveServerSettings}
+                                                                                    onClick={() => void handleUpdateServerSettings()}
+                                                                                >
+                                                                                    Save changes
+                                                                                </button>
+                                                                            </>
                                                                         )}
-                                                                        <button
-                                                                            type="button"
-                                                                            className="btn btn-primary btn-sm"
-                                                                            disabled={!canSaveServerSettings}
-                                                                            onClick={() => void handleUpdateServerSettings()}
-                                                                        >
-                                                                            Save changes
-                                                                        </button>
                                                                         <input
                                                                             ref={serverIconInputRef}
                                                                             type="file"
                                                                             accept="image/*"
                                                                             style={{ display: 'none' }}
                                                                             onChange={(e) => {
-                                                                                void handleServerIconPick(e.target.files)
+                                                                                handleServerIconPick(e.target.files)
                                                                                 e.currentTarget.value = ''
                                                                             }}
                                                                         />
                                                                     </div>
                                                                 )}
                                                             </div>
+                                                            {isOwner && serverIconEditor && (
+                                                                <ProfileAvatarEditor
+                                                                    key={serverIconEditor.key}
+                                                                    file={serverIconEditor.file}
+                                                                    shape="rounded-square"
+                                                                    onChooseAnother={() => serverIconInputRef.current?.click()}
+                                                                    onCancel={() => setServerIconEditor(null)}
+                                                                    onSave={saveServerIcon}
+                                                                />
+                                                            )}
 
                                                             <div className="server-overview-profile__form">
                                                                 <div className="form-group">

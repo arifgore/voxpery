@@ -3107,6 +3107,10 @@ body {
   touch-action: none;
 }
 
+.profile-avatar-editor--rounded-square .profile-avatar-editor__stage {
+  border-radius: 33%;
+}
+
 .profile-avatar-editor__stage:active {
   cursor: grabbing;
 }
@@ -3336,15 +3340,15 @@ body {
   background: var(--overlay-backdrop);
 }
 
-/* The photo editor's save is the step's primary action, styled like the dialog's Done. */
-.user-settings-modal .profile-avatar-editor__actions .profile-avatar-editor__save {
+/* The photo editor's save is the step's primary action (profile and server icon). */
+.profile-avatar-editor__actions .profile-avatar-editor__save {
   border-color: var(--btn-primary-border);
   background: var(--btn-primary-bg);
   color: var(--btn-primary-text);
   font-weight: 600;
 }
 
-.user-settings-modal .profile-avatar-editor__actions .profile-avatar-editor__save:hover:not(:disabled) {
+.profile-avatar-editor__actions .profile-avatar-editor__save:hover:not(:disabled) {
   border-color: var(--btn-primary-border-hover);
   background: var(--btn-primary-bg-hover);
 }

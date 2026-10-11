@@ -1740,6 +1740,10 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
               channel_type: 'text' as const,
               position: 0,
             }
+            const dmMentionUsers = [
+              { user_id: dmChannel.peer_id, username: dmChannel.peer_username, avatar_url: dmChannel.peer_avatar_url, status: dmChannel.peer_status },
+              ...(user ? [{ user_id: user.id, username: user.username, avatar_url: user.avatar_url ?? null, status: user.status }] : []),
+            ]
             return (
               <ChatArea
                 activeChannel={syntheticChannel}
@@ -1773,6 +1777,7 @@ export default function HomePage({ isMessagesView = true }: { isMessagesView?: b
                 }}
                 currentUserId={user?.id ?? null}
                 isDm
+                mentionUsers={dmMentionUsers}
                 replyingTo={replyingToDm}
                 onCancelReply={() => setReplyingToDm(null)}
                 onReplyToMessage={(msg) => {
